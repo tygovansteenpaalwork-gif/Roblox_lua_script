@@ -67,7 +67,7 @@ Rage **pauzeert zolang het menu open is**, zodat je hem altijd kunt uitzetten, e
 Een eigen richtkruis (kruis, X, ster, cirkel, stip ...) met regenboogkleuren, rotatie, animaties en een "mikt op"-label met naam, afstand en gezondheid.
 
 ### Visuals
-Speler-ESP met een 3D-box, namen, afstand, gezondheidsbalk, vastgehouden item en tracers, met volledige kleurkeuze. Ook fullbright, tijd van de dag en FOV.
+Speler-ESP met een 3D-box, **skeleton** (lijnen door de gewrichten, voor R6 en R15), een **groene gezondheidsbalk links van de box** die van onder naar boven loopt (optioneel verkleurend naar rood bij weinig gezondheid), namen, afstand, vastgehouden item, chams en tracers, met volledige kleurkeuze. Spelers op je whitelist en blacklist krijgen een eigen kleur. Ook fullbright, tijd van de dag en FOV.
 
 ### Movement
 Snelheid, springen, vliegen (met verticale snelheid en gladheid), noclip, oneindig springen en anti stun (je kunt nog bewegen als het spel je neer wil houden).
@@ -84,6 +84,8 @@ Snelheid, springen, vliegen (met verticale snelheid en gladheid), noclip, oneind
 
 ### Player
 Teleporteren en toekijken, een speler volgen (met een glijdende automatische afstand), om een speler heen draaien (cirkel, deinen of achtje, met lock-on) en een inventaris-inspecteur die laat zien wat een speler vasthoudt en bij zich draagt.
+
+**Whitelist en blacklist:** kies spelers uit de server. Whitelist (vrienden) worden door aimbot, silent aim, triggerbot en rage overgeslagen. Blacklist (doelwitten) zijn eerst aan de beurt, en met *Only Target Blacklist* wordt alleen op hen gemikt. Een speler staat op maximaal één lijst. De lijsten werken op naam, blijven kloppen als iemand weggaat en terugkomt, en worden in je config opgeslagen.
 
 ### Avatar
 Word een kopie van een andere speler: zijn accessoires, kleding, kleuren, gezicht en hoofd. Kies iemand in de server of typ elke Roblox-**gebruikersnaam of UserId**. Met **Restore My Avatar** krijg je je eigen uiterlijk exact terug, en de gekopieerde look blijft behouden na een respawn. Dit werkt alleen aan jouw kant: andere spelers blijven je echte avatar zien.

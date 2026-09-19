@@ -24,6 +24,8 @@ local U = {
     Binds = {},
     Cleanups = {},
     Running = true,
+    White = {},
+    Black = {},
 }
 
 getgenv().__TerkanUniversal = U
@@ -523,9 +525,12 @@ local function selectTarget(o)
     local origin = o.Origin or viewportCenter()
     local camPos = c.CFrame.Position
     local best, bestScore
+    local anyBlack = next(U.Black) ~= nil
 
     for _, plr in ipairs(Players:GetPlayers())do
-        if plr ~= lp and (not o.Only or plr.Name == o.Only) then
+        local listed = not (C.ListRespectWhite and U.White[plr.Name]) and not (C.ListOnlyBlack and anyBlack and not U.Black[plr.Name])
+
+        if plr ~= lp and listed and (not o.Only or plr.Name == o.Only) then
             local char, hum, root = charOf(plr, o.AllowDead)
 
             if char and not (o.Team and sameTeam(plr)) and not (o.NoFF and char:FindFirstChildOfClass('ForceField')) then
@@ -550,6 +555,9 @@ local function selectTarget(o)
                                     end
                                     if o.Sticky and o.Sticky == plr then
                                         score -= 1e6
+                                    end
+                                    if C.ListBlackFirst and U.Black[plr.Name] then
+                                        score -= 1e7
                                     end
                                     if not bestScore or score < bestScore then
                                         bestScore = score
@@ -1076,6 +1084,12 @@ local function underCrosshair()
     if plr then
         if plr == lp then
             return nil, 'that is you'
+        end
+        if C.ListRespectWhite and U.White[plr.Name] then
+            return nil, 'whitelisted: ' .. plr.DisplayName
+        end
+        if C.ListOnlyBlack and next(U.Black) ~= nil and not U.Black[plr.Name] then
+            return nil, 'not on the blacklist'
         end
         if C.TrigTeam and sameTeam(plr) then
             return nil, 'teammate'
@@ -2224,6 +2238,7 @@ toggle(esp, 'Names', 'ESPName', true)
 toggle(esp, 'Distance & Health', 'ESPInfo', true)
 toggle(esp, 'Held Item', 'ESPHeld', true)
 toggle(esp, 'Health Bar', 'ESPHealth', true)
+toggle(esp, 'Skeleton', 'ESPSkeleton', true)
 toggle(esp, 'Chams', 'ESPChams', false)
 toggle(esp, 'Tracers', 'ESPTracers', false)
 toggle(esp, 'Team Check', 'ESPTeam', false)
@@ -2238,6 +2253,15 @@ color(espCol, 'Name Text', 'ESPTextColor', Color3.fromRGB(255, 255, 255))
 color(espCol, 'Chams Fill', 'ESPFillColor', Color3.fromRGB(255, 60, 60))
 color(espCol, 'Chams Outline', 'ESPOutlineColor', Color3.fromRGB(255, 255, 255))
 color(espCol, 'Tracer', 'ESPTracerColor', Color3.fromRGB(255, 60, 60))
+color(espCol, 'Skeleton', 'ESPSkelColor', Color3.fromRGB(255, 255, 255))
+slider(espCol, 'Skeleton Width', 'ESPSkelWidth', 1, 4, 1.5, {
+    Decimals = 1,
+    Suffix = ' px',
+})
+color(espCol, 'Health Bar', 'ESPHealthColor', Color3.fromRGB(70, 220, 90))
+toggle(espCol, 'Health Bar Shifts To Red When Low', 'ESPHealthShift', false)
+color(espCol, 'Whitelisted Player', 'ListWhiteColor', Color3.fromRGB(80, 200, 255))
+color(espCol, 'Blacklisted Player', 'ListBlackColor', Color3.fromRGB(255, 200, 0))
 slider(espCol, 'Chams Transparency', 'ESPFillTrans', 0, 1, 0.55, {Decimals = 2})
 slider(espCol, 'Tracer Width', 'ESPTracerWidth', 1, 6, 1.5, {
     Decimals = 1,
@@ -2285,6 +2309,79 @@ local function label(parent, props)
 
     return l
 end
+
+U.skelBones = function(char, hum)
+    local out = {}
+
+    local function part(name)
+        local p = char:FindFirstChild(name)
+
+        return p and p:IsA('BasePart') and p or nil
+    end
+    local function top(p)
+        return (p.CFrame * CFrame.new(0, p.Size.Y / 2, 0)).Position
+    end
+    local function bottom(p)
+        return (p.CFrame * CFrame.new(0, -p.Size.Y / 2, 0)).Position
+    end
+    local function add(a, b)
+        if a and b then
+            out[#out + 1] = {a, b}
+        end
+    end
+
+    if hum.RigType == Enum.HumanoidRigType.R15 then
+        local head, ut, lt = part('Head'), part('UpperTorso'), part('LowerTorso')
+
+        add(head and head.Position, ut and ut.Position)
+        add(ut and ut.Position, lt and lt.Position)
+
+        for _, side in ipairs({
+            'Left',
+            'Right',
+        })do
+            local ua, la, hand = part(side .. 'UpperArm'), part(side .. 'LowerArm'), part(side .. 'Hand')
+
+            add(ut and ut.Position, ua and ua.Position)
+            add(ua and ua.Position, la and la.Position)
+            add(la and la.Position, hand and hand.Position)
+
+            local ul, ll, foot = part(side .. 'UpperLeg'), part(side .. 'LowerLeg'), part(side .. 'Foot')
+
+            add(lt and lt.Position, ul and ul.Position)
+            add(ul and ul.Position, ll and ll.Position)
+            add(ll and ll.Position, foot and foot.Position)
+        end
+    else
+        local head, torso = part('Head'), part('Torso')
+        local la, ra, ll, rl = part('Left Arm'), part('Right Arm'), part('Left Leg'), part('Right Leg')
+
+        if torso then
+            local neck, pelvis = top(torso), bottom(torso)
+
+            add(head and head.Position, neck)
+            add(neck, pelvis)
+            add(la and top(la), ra and top(ra))
+            add(ll and top(ll), rl and top(rl))
+        end
+
+        for _, name in ipairs({
+            'Left Arm',
+            'Right Arm',
+            'Left Leg',
+            'Right Leg',
+        })do
+            local limb = part(name)
+
+            if limb then
+                add(top(limb), bottom(limb))
+            end
+        end
+    end
+
+    return out
+end
+
 local function buildESP(plr)
     local o = {
         plr = plr,
@@ -2295,25 +2392,34 @@ local function buildESP(plr)
     o.hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     o.hl.Enabled = false
     o.hl.Parent = espRoot
-    o.box = Instance.new('BillboardGui')
-    o.box.AlwaysOnTop = true
-    o.box.LightInfluence = 0
-    o.box.Size = UDim2.fromScale(4, 5.8)
-    o.box.StudsOffset = Vector3.new(0, -0.3, 0)
-    o.box.ResetOnSpawn = false
-    o.box.Enabled = false
-    o.box.Parent = espRoot
-    o.hpBack = frame(o.box, {
-        Position = UDim2.new(0, -6, 0, 0),
-        Size = UDim2.new(0, 3, 1, 0),
-        BackgroundColor3 = Color3.fromRGB(20, 20, 20),
+    o.hpBack = frame(overlay, {
+        Position = UDim2.fromOffset(0, 0),
+        Size = UDim2.fromOffset(4, 10),
+        Visible = false,
+        BackgroundColor3 = Color3.fromRGB(15, 15, 15),
+        BackgroundTransparency = 0.15,
     })
+
+    local hpStroke = Instance.new('UIStroke')
+
+    hpStroke.Color = Color3.new(0, 0, 0)
+    hpStroke.Thickness = 1
+    hpStroke.Parent = o.hpBack
     o.hpFill = frame(o.hpBack, {
         AnchorPoint = Vector2.new(0, 1),
         Position = UDim2.new(0, 0, 1, 0),
         Size = UDim2.new(1, 0, 1, 0),
         BackgroundColor3 = Color3.fromRGB(70, 220, 90),
     })
+    o.bones = {}
+
+    for i = 1, 14 do
+        o.bones[i] = frame(overlay, {
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Visible = false,
+        })
+    end
+
     o.info = Instance.new('BillboardGui')
     o.info.AlwaysOnTop = true
     o.info.LightInfluence = 0
@@ -2416,7 +2522,7 @@ end
 local function destroyESP(o)
     for _, key in ipairs({
         'hl',
-        'box',
+        'hpBack',
         'info',
         'tracer',
     })do
@@ -2431,15 +2537,23 @@ local function destroyESP(o)
             e:Destroy()
         end)
     end
+    for _, b in ipairs(o.bones or {})do
+        pcall(function()
+            b:Destroy()
+        end)
+    end
 end
 local function hideESP(o)
     o.hl.Enabled = false
-    o.box.Enabled = false
+    o.hpBack.Visible = false
     o.info.Enabled = false
     o.tracer.Visible = false
 
     for _, e in ipairs(o.edges)do
         e.Visible = false
+    end
+    for _, b in ipairs(o.bones)do
+        b.Visible = false
     end
 end
 
@@ -2492,19 +2606,41 @@ connect(RunService.RenderStepped, function()
                 if not show then
                     hideESP(o)
                 else
-                    local teamCol = C.ESPTeamColors and plr.Team and plr.TeamColor.Color
+                    local listCol = (U.Black[plr.Name] and C.ListBlackColor) or (U.White[plr.Name] and C.ListWhiteColor) or nil
+                    local teamCol = listCol or (C.ESPTeamColors and plr.Team and plr.TeamColor.Color)
 
                     o.hl.Adornee = char
                     o.hl.FillColor = teamCol or C.ESPFillColor
                     o.hl.OutlineColor = C.ESPOutlineColor
                     o.hl.FillTransparency = C.ESPFillTrans
                     o.hl.Enabled = C.ESPChams
-                    o.box.Adornee = root
-                    o.box.Size = UDim2.fromScale(4 * C.ESP3DScale, 5.8 * C.ESP3DScale)
-                    o.box.StudsOffset = Vector3.new(0, -0.3 * C.ESP3DScale, 0)
-                    o.box.Enabled = C.ESPHealth
-                    o.hpBack.Visible = C.ESPHealth
+                    o.hpBack.Visible = false
 
+                    if C.ESPHealth then
+                        local sx, sy, sz = 4 * C.ESP3DScale, 5.8 * C.ESP3DScale, 2.6 * C.ESP3DScale
+                        local cy = -0.3 * C.ESP3DScale
+                        local minX, minY, maxY, allOn = math.huge, math.huge, -math.huge, true
+
+                        for xi = -1, 1, 2 do
+                            for yi = -1, 1, 2 do
+                                for zi = -1, 1, 2 do
+                                    local sp, on = screenPoint((root.CFrame * CFrame.new(xi * sx / 2, cy + yi * sy / 2, zi * sz / 2)).Position)
+
+                                    if not on then
+                                        allOn = false
+                                    end
+
+                                    minX, minY, maxY = math.min(minX, sp.X), math.min(minY, sp.Y), math.max(maxY, sp.Y)
+                                end
+                            end
+                        end
+
+                        if allOn and maxY - minY > 4 then
+                            o.hpBack.Visible = true
+                            o.hpBack.Position = UDim2.fromOffset(math.floor(minX - 8), math.floor(minY))
+                            o.hpBack.Size = UDim2.fromOffset(4, math.floor(maxY - minY))
+                        end
+                    end
                     if C.ESP3D then
                         local sig = C.ESP3DScale .. '|' .. C.ESP3DThick
 
@@ -2545,11 +2681,41 @@ connect(RunService.RenderStepped, function()
 
                         o.heldName = tool and tool.Name or nil
                         o.heldLabel.Text = tool and ('[ ' .. tool.Name .. ' ]') or ''
+                    end
 
-                        local frac = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                    local frac = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
 
-                        o.hpFill.Size = UDim2.new(1, 0, frac, 0)
-                        o.hpFill.BackgroundColor3 = Color3.fromRGB(230, 60, 60):Lerp(Color3.fromRGB(70, 220, 90), frac)
+                    o.hpFill.Size = UDim2.new(1, 0, frac, 0)
+                    o.hpFill.BackgroundColor3 = C.ESPHealthShift and Color3.fromRGB(230, 60, 60):Lerp(C.ESPHealthColor, frac) or C.ESPHealthColor
+
+                    if C.ESPSkeleton then
+                        local joints = U.skelBones(char, hum)
+                        local skelCol = teamCol or C.ESPSkelColor
+
+                        for i, line in ipairs(o.bones)do
+                            local pair = joints[i]
+                            local a, aOn, b, bOn
+
+                            if pair then
+                                a, aOn = screenPoint(pair[1])
+                                b, bOn = screenPoint(pair[2])
+                            end
+                            if pair and aOn and bOn then
+                                local d = b - a
+
+                                line.Visible = true
+                                line.BackgroundColor3 = skelCol
+                                line.Size = UDim2.fromOffset(d.Magnitude, C.ESPSkelWidth)
+                                line.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
+                                line.Rotation = math.deg(math.atan2(d.Y, d.X))
+                            else
+                                line.Visible = false
+                            end
+                        end
+                    else
+                        for _, line in ipairs(o.bones)do
+                            line.Visible = false
+                        end
                     end
                     if C.ESPTracers then
                         local sp, on = screenPoint(root.Position)
@@ -3825,6 +3991,111 @@ misc1:Button({
     end,
 })
 
+do
+    local listSec = playerTab:Section('Whitelist & Blacklist', 'right')
+    local whiteDD, blackDD
+
+    local function presentNames()
+        local present = {}
+
+        for _, plr in ipairs(Players:GetPlayers())do
+            if plr ~= lp then
+                present[plr.Name] = true
+            end
+        end
+
+        return present
+    end
+    local function pickedOf(set)
+        local picked, present = {}, presentNames()
+
+        for name in pairs(set)do
+            if present[name] then
+                table.insert(picked, name)
+            end
+        end
+
+        table.sort(picked, function(a, b)
+            return a:lower() < b:lower()
+        end)
+
+        return picked
+    end
+    local function takePicks(set, other, picks)
+        local present = presentNames()
+
+        for name in pairs(set)do
+            if present[name] then
+                set[name] = nil
+            end
+        end
+        for _, name in ipairs(picks)do
+            set[name] = true
+            other[name] = nil
+        end
+    end
+    local function syncSelections()
+        if whiteDD then
+            whiteDD:Set(pickedOf(U.White), true)
+        end
+        if blackDD then
+            blackDD:Set(pickedOf(U.Black), true)
+        end
+    end
+
+    whiteDD = listSec:Dropdown({
+        Text = 'Whitelist (friends)',
+        Options = playerNames(),
+        Multi = true,
+        Flag = 'ListWhite',
+        Callback = function(picks)
+            takePicks(U.White, U.Black, picks)
+            syncSelections()
+        end,
+    })
+    blackDD = listSec:Dropdown({
+        Text = 'Blacklist (targets)',
+        Options = playerNames(),
+        Multi = true,
+        Flag = 'ListBlack',
+        Callback = function(picks)
+            takePicks(U.Black, U.White, picks)
+            syncSelections()
+        end,
+    })
+
+    local function refreshLists()
+        whiteDD:SetOptions(playerNames())
+        blackDD:SetOptions(playerNames())
+        syncSelections()
+    end
+
+    connect(Players.PlayerAdded, refreshLists)
+    connect(Players.PlayerRemoving, function()
+        task.defer(refreshLists)
+    end)
+    listSec:Button({
+        Text = 'Refresh Player List',
+        Callback = refreshLists,
+    })
+    listSec:Button({
+        Text = 'Clear Whitelist',
+        Callback = function()
+            table.clear(U.White)
+            syncSelections()
+        end,
+    })
+    listSec:Button({
+        Text = 'Clear Blacklist',
+        Callback = function()
+            table.clear(U.Black)
+            syncSelections()
+        end,
+    })
+    toggle(listSec, 'Skip Whitelisted Players', 'ListRespectWhite', true)
+    toggle(listSec, 'Target Blacklisted First', 'ListBlackFirst', true)
+    toggle(listSec, 'Only Target Blacklist', 'ListOnlyBlack', false)
+end
 do
     local avatarTab = win:Tab('Avatar')
     local avPlayer = avatarTab:Section('Copy Player')
