@@ -1,20 +1,3 @@
---[[
-    TerkanUI  -  minimal dark/red exploit UI library
-    Layout: topbar (title + stats) | sidebar tabs | 2 content columns | footer
-
-    Quick start:
-        local UI = loadstring(readfile("TerkanUI.lua"))()
-        local win = UI:Window({ Title = "TERKAN", Version = "V 1.0", Footer = "Terkan Steal a Egg V4.6" })
-        local main = win:Tab("Main")
-        local aim  = main:Section("Aimbot")            -- left column
-        local def  = main:Section("Defense", "right")  -- right column
-
-        aim:Dropdown({ Text = "Areas", Options = {"All","Front","Back"}, Default = "All", Callback = print })
-        aim:Toggle({ Text = "Auto Steal Selected", Default = true, Callback = print })
-        def:Slider({ Text = "Aura Range", Min = 5, Max = 50, Default = 15, Callback = print })
-        def:TextBox({ Text = "Cash Reserve", Default = "0", Numeric = true, Callback = print })
---]]
-
 local Players           = game:GetService("Players")
 local UserInputService   = game:GetService("UserInputService")
 local TweenService       = game:GetService("TweenService")
@@ -24,10 +7,6 @@ local HttpService        = game:GetService("HttpService")
 local Lighting           = game:GetService("Lighting")
 
 local LocalPlayer = Players.LocalPlayer
-
-----------------------------------------------------------------------
--- theme
-----------------------------------------------------------------------
 
 local Theme = {
     Accent      = Color3.fromRGB(255, 32, 48),
@@ -49,14 +28,6 @@ local Theme = {
     Off         = Color3.fromRGB(44, 44, 46),
     OffKnob     = Color3.fromRGB(255, 255, 255),
 }
-
-----------------------------------------------------------------------
--- theming
---   A theme is just an accent colour; every other role is derived from it. Applying a
---   theme walks the whole GUI and swaps each old role colour for the new one, so nothing
---   has to be registered per element. Instances tagged "TerkanNoTheme" (colour pickers,
---   swatches) are skipped on purpose.
-----------------------------------------------------------------------
 
 local THEME_ROLES = { "Accent", "AccentDark", "AccentDeep", "Bg", "BgTop", "Field", "FieldHover", "Border", "BorderSoft" }
 
@@ -98,16 +69,12 @@ local Sizes = {
     TopBar      = 48,
     Footer      = 32,
     Sidebar     = 156,
-    Row         = 30,   -- dropdown / textbox / button height
+    Row         = 30,
     Slider      = 28,
-    Gap         = 7,    -- gap between elements
+    Gap         = 7,
     SectionGap  = 16,
     Pad         = 16,
 }
-
-----------------------------------------------------------------------
--- helpers
-----------------------------------------------------------------------
 
 local FONT_FAMILY = "rbxasset://fonts/families/RobotoMono.json"
 
@@ -129,7 +96,6 @@ local function new(class, props, parent)
     return inst
 end
 
--- sharp corners everywhere: no-op kept so call sites don't need touching
 local function corner(inst, radius)
     return nil
 end
@@ -186,7 +152,6 @@ local function round(value, decimals)
     return math.floor(value * mult + 0.5) / mult
 end
 
--- accepts both Toggle({Text=..}) and Toggle("Text", default, callback)
 local function cfg(a, ...)
     if type(a) == "table" then return a end
     local extra = { ... }
@@ -202,10 +167,6 @@ local function getParentGui()
     if ok and core then return core end
     return LocalPlayer:WaitForChild("PlayerGui")
 end
-
-----------------------------------------------------------------------
--- library root
-----------------------------------------------------------------------
 
 local TerkanUI = {}
 TerkanUI.__index = TerkanUI
@@ -223,10 +184,10 @@ function TerkanUI:Window(options)
         Footer     = options.Footer or "",
         ToggleKey  = options.ToggleKey or Enum.KeyCode.RightShift,
         Tabs       = {},
-        Accented   = {},     -- kept for old call sites; theming now walks the GUI instead
+        Accented   = {},
         Conns      = {},
-        OpenMenu   = nil,    -- currently open dropdown
-        Flags      = {},     -- [flag] = { Kind, Get, Set }  (everything saved in configs)
+        OpenMenu   = nil,
+        Flags      = {},
         ConfigFolder = options.ConfigFolder or "Terkan",
         BlurEnabled = false,
         BlurSize   = 16,
@@ -242,7 +203,6 @@ function TerkanUI:Window(options)
 
     local size = options.Size or Sizes.Window
 
-    -- screen gui -----------------------------------------------------
     local gui = new("ScreenGui", {
         Name = "TerkanUI_" .. tostring(math.random(1e5, 1e6)),
         ResetOnSpawn = false,
@@ -257,7 +217,6 @@ function TerkanUI:Window(options)
     local scale = new("UIScale", { Scale = options.Scale or 1 }, gui)
     self.Scale = scale
 
-    -- main frame -----------------------------------------------------
     local main = new("Frame", {
         Name = "Main",
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -268,12 +227,11 @@ function TerkanUI:Window(options)
         ClipsDescendants = false,
     }, gui)
     corner(main, 9)
-    -- one plain 2px border, nothing else (no glow ring, no accent streak)
+
     local mainStroke = stroke(main, Theme.Accent, 2, 0)
     self.Main = main
     table.insert(self.Accented, { mainStroke, "Color" })
 
-    -- top bar --------------------------------------------------------
     local topbar = new("Frame", {
         Name = "TopBar",
         Size = UDim2.new(1, 0, 0, Sizes.TopBar),
@@ -281,14 +239,13 @@ function TerkanUI:Window(options)
         BorderSizePixel = 0,
     }, main)
     corner(topbar, 9)
-    new("Frame", { -- square off the bottom corners
+    new("Frame", {
         Size = UDim2.new(1, 0, 0, 12),
         Position = UDim2.new(0, 0, 1, -12),
         BackgroundColor3 = Theme.BgTop,
         BorderSizePixel = 0,
     }, topbar)
 
-    -- bottom divider of the topbar
     local topLine = new("Frame", {
         Size = UDim2.new(1, 0, 0, 1),
         Position = UDim2.new(0, 0, 1, -1),
@@ -306,7 +263,6 @@ function TerkanUI:Window(options)
     self.TitleLabel = title
     table.insert(self.Accented, { title, "TextColor3" })
 
-    -- stat readouts (FPS / PING / VER), right aligned
     local stats = new("Frame", {
         Name = "Stats",
         AnchorPoint = Vector2.new(1, 0.5),
@@ -351,8 +307,6 @@ function TerkanUI:Window(options)
     local pingVal = statEntry(2, "PING", "0")
     statEntry(3, "VER", self.Version)
 
-    -- sidebar --------------------------------------------------------
-    -- a scrolling list: with many tabs the last ones (Settings!) must never fall out of view
     local sidebar = new("ScrollingFrame", {
         Name = "Sidebar",
         Position = UDim2.new(0, 0, 0, Sizes.TopBar),
@@ -381,7 +335,6 @@ function TerkanUI:Window(options)
     }, main)
     table.insert(self.Accented, { sideLine, "BackgroundColor3" })
 
-    -- body (holds one page per tab) ----------------------------------
     local body = new("Frame", {
         Name = "Body",
         Position = UDim2.new(0, Sizes.Sidebar + 1, 0, Sizes.TopBar),
@@ -390,7 +343,6 @@ function TerkanUI:Window(options)
     }, main)
     self.Body = body
 
-    -- footer ---------------------------------------------------------
     local footer = new("Frame", {
         Name = "Footer",
         AnchorPoint = Vector2.new(0, 1),
@@ -410,7 +362,6 @@ function TerkanUI:Window(options)
         Enum.TextXAlignment.Center)
     self.FooterLabel = footText
 
-    -- overlay (dropdown menus escape the scrolling frames) -----------
     local overlay = new("Frame", {
         Name = "Overlay",
         Size = UDim2.fromScale(1, 1),
@@ -432,10 +383,6 @@ function TerkanUI:Window(options)
         self:CloseMenu()
     end)
 
-    -- behaviour ------------------------------------------------------
-    -- one shared drag controller for the window and every slider. release is
-    -- watched globally: InputEnded on the element itself never fires when the
-    -- cursor leaves it before the button comes up, which sticks the drag on.
     self.ActiveDrag = nil
     table.insert(self.Conns, UserInputService.InputChanged:Connect(function(input)
         if not self.ActiveDrag then return end
@@ -460,7 +407,6 @@ function TerkanUI:Window(options)
         end
     end))
 
-    -- fps / ping
     local frames, elapsed = 0, 0
     table.insert(self.Conns, RunService.RenderStepped:Connect(function(dt)
         frames += 1
@@ -475,20 +421,14 @@ function TerkanUI:Window(options)
         end
     end))
 
-    -- open animation
     main.Size = UDim2.fromOffset(size.X, 0)
     tween(main, { Size = UDim2.fromOffset(size.X, size.Y) }, 0.25, Enum.EasingStyle.Quart)
 
     return self
 end
 
--- keep the old spelling working
 TerkanUI.new = TerkanUI.Window
 TerkanUI.CreateWindow = TerkanUI.Window
-
-----------------------------------------------------------------------
--- window methods
-----------------------------------------------------------------------
 
 function Window:_makeDraggable(handle)
     local main = self.Main
@@ -590,8 +530,6 @@ end
 
 function Window:GetThemeNames() return ThemeNames end
 
--- blur behind the menu while it is open ------------------------------
-
 function Window:_updateBlur()
     local want = self.BlurEnabled and self.Main and self.Main.Visible
     if want then
@@ -609,8 +547,6 @@ function Window:SetBlur(enabled, size)
     if size then self.BlurSize = size end
     self:_updateBlur()
 end
-
--- flags + configs ----------------------------------------------------
 
 local function encodeValue(kind, v)
     if kind == "color" then return "#" .. v:ToHex() end
@@ -764,10 +700,6 @@ function Window:Destroy()
     if self.Gui then self.Gui:Destroy() end
 end
 
-----------------------------------------------------------------------
--- tabs
-----------------------------------------------------------------------
-
 function Window:Tab(name)
     local win = self
 
@@ -778,7 +710,6 @@ function Window:Tab(name)
         Visible = false,
     }, self.Body)
 
-    -- two columns with a divider between them
     local function column(xScale, xOffset, widthScale, widthOffset)
         local sf = new("ScrollingFrame", {
             Position = UDim2.new(xScale, xOffset, 0, 0),
@@ -812,7 +743,6 @@ function Window:Tab(name)
     }, page)
     table.insert(win.Accented, { colLine, "BackgroundColor3" })
 
-    -- sidebar button
     local btn = new("TextButton", {
         Name = "Tab_" .. name,
         Size = UDim2.new(1, 0, 0, 34),
@@ -882,10 +812,6 @@ function Window:SelectTab(name)
     end
 end
 
-----------------------------------------------------------------------
--- sections
-----------------------------------------------------------------------
-
 function Tab:Section(name, side)
     local parent = (side == "right" or side == "Right") and self.Right or self.Left
     local isFirst = true
@@ -902,7 +828,6 @@ function Tab:Section(name, side)
     }, parent)
     vlist(holder, Sizes.Gap)
 
-    -- separator above every section except the first in its column
     if not isFirst then
         local sep = new("Frame", {
             Size = UDim2.new(1, 0, 0, 1),
@@ -944,16 +869,11 @@ function Section:_row(height)
     }, self.Holder)
 end
 
--- label shown above a field (dropdown / textbox)
 function Section:_fieldLabel(str)
     local row = self:_row(18)
     text(row, str, 14, Theme.Text, Enum.FontWeight.Regular)
     return row
 end
-
-----------------------------------------------------------------------
--- elements
-----------------------------------------------------------------------
 
 function Section:Label(str, color)
     local row = self:_row(18)
@@ -1045,7 +965,7 @@ function Section:Toggle(a, ...)
         Position = default and UDim2.new(1, -21, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
         Size = UDim2.fromOffset(18, 16),
         BackgroundColor3 = default and Color3.fromRGB(255, 255, 255) or Theme.OffKnob,
-        BackgroundTransparency = 0,   -- solid: always clearly visible
+        BackgroundTransparency = 0,
         BorderSizePixel = 0,
     }, track)
     corner(knob, 3)
@@ -1267,7 +1187,6 @@ function Section:Dropdown(a, ...)
     valueLabel.Size = UDim2.new(1, -34, 1, 0)
     padding(valueLabel, 0, 0, 10, 0)
 
-    -- chevron drawn as an image (monospace fonts have no triangle glyph)
     local chevron = new("ImageLabel", {
         AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, -9, 0.5, 0),
@@ -1278,8 +1197,7 @@ function Section:Dropdown(a, ...)
     }, box)
     table.insert(win.Accented, { chevron, "ImageColor3" })
 
-    -- state ----------------------------------------------------------
-    local selected = {}          -- [option] = true (multi) / single value in selected[1]
+    local selected = {}
     local single = nil
 
     local function displayText()
@@ -1312,7 +1230,6 @@ function Section:Dropdown(a, ...)
         end
     end
 
-    -- menu -----------------------------------------------------------
     local function closeMenu()
         if menu then
             menu:Destroy()
@@ -1337,7 +1254,6 @@ function Section:Dropdown(a, ...)
         local maxShown = math.min(#options, 7)
         local height = math.max(rowH * maxShown + 8, rowH + 8)
 
-        -- flip upwards if it would leave the window
         local winH = win.Main.AbsoluteSize.Y / scale
         if y + height > winH - 6 then
             y = (absPos.Y - rootPos.Y) / scale - height - 4
@@ -1430,7 +1346,6 @@ function Section:Dropdown(a, ...)
         if menu then win:CloseMenu() else openMenu() end
     end)
 
-    -- defaults -------------------------------------------------------
     if multi then
         if default == "All" or default == true then
             for _, opt in ipairs(options) do selected[opt] = true end
@@ -1490,10 +1405,6 @@ function Section:Dropdown(a, ...)
     self.Window:_register(o.Flag, "dropdown", api, o.NoSave)
     return api
 end
-
-----------------------------------------------------------------------
--- keybinds  (keyboard keys, MB2 and MB3; Backspace clears, Escape cancels)
-----------------------------------------------------------------------
 
 local function bindName(bind)
     if not bind then return "NONE" end
@@ -1576,8 +1487,7 @@ function Section:Keybind(a, ...)
             end
             return
         end
-        -- hotkeys must still fire when the GAME sinks the key (gp = true for its own binds);
-        -- only ignore them while the user is typing in a textbox (chat, config name, ...)
+
         if not current or UserInputService:GetFocusedTextBox() then return end
         if bindMatches(input, current) and callback then
             task.spawn(callback, current)
@@ -1592,10 +1502,6 @@ function Section:Keybind(a, ...)
     win:_register(o.Flag, "keybind", api, o.NoSave)
     return api
 end
-
-----------------------------------------------------------------------
--- colour picker  (saturation/value square, hue bar, hex box)
-----------------------------------------------------------------------
 
 function Section:ColorPicker(a, ...)
     local o = cfg(a, ...)
@@ -1662,7 +1568,6 @@ function Section:ColorPicker(a, ...)
         }, win.Overlay)
         stroke(menu, Theme.Accent, 1, 0.25)
 
-        -- saturation (left to right) / value (top to bottom) square
         local sv = new("TextButton", {
             Position = UDim2.fromOffset(8, 8),
             Size = UDim2.fromOffset(W - 16, 112),
@@ -1700,7 +1605,6 @@ function Section:ColorPicker(a, ...)
         new("UICorner", { CornerRadius = UDim.new(1, 0) }, svMarker)
         new("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, svMarker)
 
-        -- hue bar
         local hueBar = new("TextButton", {
             Position = UDim2.fromOffset(8, 128),
             Size = UDim2.fromOffset(W - 16, 14),
@@ -1727,7 +1631,6 @@ function Section:ColorPicker(a, ...)
         }, hueBar)
         hueMarker:SetAttribute("TerkanNoTheme", true)
 
-        -- hex box
         local hex = new("TextBox", {
             Position = UDim2.fromOffset(8, 150),
             Size = UDim2.fromOffset(W - 16, 22),
@@ -1806,10 +1709,6 @@ function Section:ColorPicker(a, ...)
     return api
 end
 
-----------------------------------------------------------------------
--- notifications
-----------------------------------------------------------------------
-
 local NOTIFY_PLACES = {
     ["Top Left"]     = { Vector2.new(0, 0), UDim2.new(0, 14, 0, 14),   Enum.VerticalAlignment.Top,    Enum.HorizontalAlignment.Left },
     ["Top Right"]    = { Vector2.new(1, 0), UDim2.new(1, -14, 0, 14),  Enum.VerticalAlignment.Top,    Enum.HorizontalAlignment.Right },
@@ -1863,7 +1762,6 @@ function Window:Notify(options)
         self.NotifyCounter = 0
     end
 
-    -- keep the stack short: drop the oldest cards
     local cards = {}
     for _, child in ipairs(self.NotifyHolder:GetChildren()) do
         if child:IsA("Frame") then table.insert(cards, child) end

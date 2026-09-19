@@ -1,10 +1,3 @@
---[[
-    Terkan Universal  -  general purpose hub on TerkanUI
-    Tabs: Aimbot | Silent (only with metamethod hooks) | Trigger | Rage | Cursor | Visuals | Movement | Defense | Player | Misc | Notifications | Settings
-    Everything that keeps a value "forced" is bound at RenderPriority.Last so a game's own
-    script cannot win the ordering race against it.
---]]
-
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -24,17 +17,10 @@ else
     error("TerkanUI.lua not found - put it in your executor workspace folder")
 end
 
--- only one copy at a time
 if getgenv().__TerkanUniversal then
     pcall(getgenv().__TerkanUniversal.Unload)
 end
 
-----------------------------------------------------------------------
--- lifecycle helpers
-----------------------------------------------------------------------
-
--- White / Black are sets of player names (see the Lists section on the Player tab): whitelisted players are
--- skipped by every targeting feature, blacklisted players are targeted first and drawn in their own colour
 local U = { Conns = {}, Binds = {}, Cleanups = {}, Running = true, White = {}, Black = {} }
 getgenv().__TerkanUniversal = U
 
@@ -54,7 +40,6 @@ local function renderLast(fn)
     table.insert(U.Binds, name)
 end
 
--- runs before everything else in the frame (used to undo a temporary offset before anything reads it)
 local function renderFirst(fn)
     bindCounter += 1
     local name = "TerkanU_" .. bindCounter
@@ -76,13 +61,9 @@ local function parentGui()
     return lp:WaitForChild("PlayerGui")
 end
 
-----------------------------------------------------------------------
--- config values: every UI element writes into C, features only ever read C
-----------------------------------------------------------------------
-
 local C = {}
 local TOG, BIND = {}, {}
-U.C, U.TOG = C, TOG   -- exposed for self-tests
+U.C, U.TOG = C, TOG
 
 local win = UI:Window({
     Title = "TERKAN",
@@ -91,11 +72,10 @@ local win = UI:Window({
     ToggleKey = Enum.KeyCode.RightShift,
 })
 
-U.Win = win   -- exposed for self-tests
+U.Win = win
 
-local notify   -- defined further down; declared here so toggle() below captures the local, not a global
+local notify
 
--- switches that count as "a feature" for the optional Feature On / Off notifications
 local FEATURE_TOGGLES = {
     AimEnabled = true, SilentEnabled = true, TrigEnabled = true, RageEnabled = true, ESPEnabled = true,
     FlyEnabled = true, Noclip = true, SpeedEnabled = true, JumpEnabled = true, InfJump = true,
@@ -113,7 +93,7 @@ local function toggle(sec, text, key, default, onChange)
         Callback = function(v)
             C[key] = v
             if onChange then onChange(v) end
-            -- not during startup or while a config is being applied, and not if onChange refused the change
+
             if FEATURE_TOGGLES[key] and U.Ready and not U.LoadingConfig and C[key] == v then
                 notify(text, v and "Enabled" or "Disabled", v and "success" or nil, "toggle")
             end
@@ -154,9 +134,6 @@ local function keybind(sec, text, key, default, callback, onChanged)
     return BIND[key]
 end
 
--- Every notification belongs to a category, and each category has its own switch on the
--- Notifications page (C["Notif_<category>"]). Errors always count as "warn" so they cannot be
--- hidden by switching off an unrelated category.
 local NOTIF_TITLES = {
     Config = "config", ["Anti Void"] = "protect", ["Anti Fling"] = "protect", Terkan = "startup",
     ["Target locked"] = "target", ["Target down"] = "target_dead",
@@ -171,18 +148,14 @@ local function notifCategory(title, kind)
     return "misc"
 end
 
-local showToast   -- the on-screen text lines, defined below once the overlay exists
+local showToast
 
 function notify(title, text, kind, category)
     category = category or notifCategory(title, kind)
     if C["Notif_" .. category] == false then return end
     showToast(title, text, kind)
 end
-U.Notify = notify   -- exposed for self-tests
-
-----------------------------------------------------------------------
--- overlay for the FOV circles and the follow-target line
-----------------------------------------------------------------------
+U.Notify = notify
 
 local overlay = Instance.new("ScreenGui")
 overlay.Name = "TerkanOverlay"
@@ -253,12 +226,7 @@ local function cursorOrCenter(followGun)
     return viewportCenter()
 end
 
-----------------------------------------------------------------------
--- notifications: plain text lines just above the middle of the screen, like the rage status
--- (newest closest to the middle, older ones stacked away from it, each fading in and out)
-----------------------------------------------------------------------
-
-local toasts = {}   -- newest first: { label, born, kind }
+local toasts = {}
 local TOAST_LINE = 24
 
 local function toastColor(kind)
@@ -322,17 +290,10 @@ renderLast(function()
     end
 end)
 
-----------------------------------------------------------------------
--- targeting
-----------------------------------------------------------------------
-
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 rayParams.IgnoreWater = true
 
--- Returns character, humanoid, root - or nothing. Unless allowDead is set, a player only counts
--- while they are really alive: health above zero AND not in the Dead state (some games keep the
--- health value up while the humanoid is already dead, or the reverse).
 local function charOf(plr, allowDead)
     local c = plr.Character
     if not c then return end
@@ -382,7 +343,6 @@ local function candidateParts(plr, char, mode)
     }
 end
 
--- o: Only (player name: consider nobody else), Origin, FOV (px, nil = no limit), MaxDist, MinDist, Team, NoFF (skip ForceField), Wall, Part, Priority, Sticky (plr)
 local function selectTarget(o)
     local c = cam()
     local origin = o.Origin or viewportCenter()
@@ -436,36 +396,25 @@ local function predicted(t, seconds)
     return t.part.Position
 end
 
--- True while the real cursor is on top of the menu. mouse1click() clicks wherever the
--- cursor is, so an auto-clicking feature must never fire then: the click would land on
--- the menu itself (switching the feature back off, or hitting Unload).
 local function cursorOverMenu()
     if not win.Main.Visible then return false end
     local m = UserInputService:GetMouseLocation()
     local p, s = win.Main.AbsolutePosition, win.Main.AbsoluteSize
-    -- GetMouseLocation is in viewport space, AbsolutePosition in GUI space: they differ by the top inset
+
     local top = game:GetService("GuiService"):GetGuiInset().Y
     return m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y + top and m.Y <= p.Y + s.Y + top
 end
 
--- A click made INSIDE the game (VirtualInputManager) at the middle of the screen. Unlike
--- mouse1click it does not depend on the real cursor or on the window being focused (in The
--- Strongest Battlegrounds mouse1click started no attack at all, this does). It is skipped while
--- the menu covers that point, because the click would land on the menu.
 local function virtualClick(at)
-    -- While the menu is open NO virtual click is sent at all, wherever the menu sits: every
-    -- VirtualInputManager event moves the game's idea of the mouse position, so the user's own
-    -- click on a menu button (e.g. switching Rage off) lands on nothing and never registers.
-    -- Exception: a click AT the real cursor (the triggerbot) moves nothing, so it may run with the menu
-    -- open as long as the cursor is not on the menu itself.
+
     if win.Main.Visible and (not at or cursorOverMenu()) then return false end
     local vp = cam().ViewportSize
     local x, y = vp.X / 2, vp.Y / 2
-    -- `at` = a mouse position (viewport coordinates): click exactly there, e.g. where the triggerbot sees an enemy
-    if at then x, y = at.X, at.Y end   -- VirtualInputManager and GetMouseLocation share one coordinate space (measured: no inset)
+
+    if at then x, y = at.X, at.Y end
     local vim = game:GetService("VirtualInputManager")
     vim:SendMouseButtonEvent(x, y, 0, true, game, 1)
-    task.delay(0.03, function() vim:SendMouseButtonEvent(x, y, 0, false, game, 1) end)   -- short hold: some games ignore a same-frame press+release
+    task.delay(0.03, function() vim:SendMouseButtonEvent(x, y, 0, false, game, 1) end)
     return true
 end
 
@@ -474,8 +423,7 @@ local function fireWeapon(method, at)
     local tool = char and char:FindFirstChildOfClass("Tool")
     local canClick = hasFn("mouse1click") and not cursorOverMenu()
     if method == "Auto" then
-        -- a click inside the game works for tools AND punch/M1 games (Tool:Activate and mouse1click
-        -- start no attack in e.g. The Strongest Battlegrounds); fall back only if it cannot be sent
+
         local ok, sent = pcall(virtualClick, at)
         if not (ok and sent) and (not win.Main.Visible or (at ~= nil and not cursorOverMenu())) then
             if tool then tool:Activate() elseif canClick then pcall(mouse1click) end
@@ -487,11 +435,11 @@ local function fireWeapon(method, at)
     elseif tool then
         tool:Activate()
     else
-        pcall(virtualClick)   -- no tool (e.g. punch-based games): click inside the game
+        pcall(virtualClick)
     end
 end
 
-U.FireWeapon, U.CursorOverMenu, U.Win = fireWeapon, cursorOverMenu, win   -- exposed for self-tests
+U.FireWeapon, U.CursorOverMenu, U.Win = fireWeapon, cursorOverMenu, win
 
 local function ensureToolEquipped()
     local char = lp.Character
@@ -505,10 +453,6 @@ local AIM_TYPES = { "Smooth Camera", "Hard Lock", "Snap On Fire", "Mouse Move", 
 local TARGET_PARTS = { "Head", "Torso", "Random", "Closest" }
 local PRIORITIES = { "Closest to Cursor", "Closest Distance", "Lowest Health" }
 local FIRE_METHODS = { "Auto", "Tool Activate", "Mouse Click", "Virtual Click" }
-
-----------------------------------------------------------------------
--- tab: Aimbot (soft aim)
-----------------------------------------------------------------------
 
 local aimTab = win:Tab("Aimbot")
 local aim = aimTab:Section("Soft Aim")
@@ -536,7 +480,6 @@ local aimCircle = makeCircle()
 local aimTarget
 local faceLocked = false
 
--- "Character Face" switches off the humanoid's own turning; hand it back when done
 local function releaseFace()
     if faceLocked then
         faceLocked = false
@@ -560,7 +503,7 @@ renderLast(function(dt)
     if C.AimType == "Snap On Fire" then
         active = active and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
     end
-    -- never fight the user while they are working in the menu
+
     if not active or cursorOverMenu() then aimTarget = nil releaseFace() return end
 
     local t = selectTarget({
@@ -579,15 +522,15 @@ renderLast(function(dt)
     if aimType ~= "Character Face" then releaseFace() end
 
     if aimType == "Hard Lock" or aimType == "Snap On Fire" then
-        -- instant: the camera points exactly at the target, no smoothing
+
         local c = cam()
         c.CFrame = CFrame.lookAt(c.CFrame.Position, goal)
     elseif aimType == "Mouse Move" and hasFn("mousemoverel") then
-        -- moves the real cursor (works in games that read the mouse delta, e.g. locked first person)
+
         local sp = screenPoint(goal)
         mousemoverel((sp.X - center.X) * alpha, (sp.Y - center.Y) * alpha)
     elseif aimType == "Character Face" then
-        -- turns the character instead of the camera (third person)
+
         local char, hum, root = charOf(lp)
         if char then
             hum.AutoRotate = false
@@ -596,29 +539,25 @@ renderLast(function(dt)
             root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, flat), alpha)
         end
     else
-        -- "Smooth Camera" (also the fallback when Mouse Move is not available)
+
         local c = cam()
         c.CFrame = c.CFrame:Lerp(CFrame.lookAt(c.CFrame.Position, goal), alpha)
     end
 end)
 
--- Silent aim only exists on executors that can hook metamethods (see the tab for details)
 local CAN_HOOK = hasFn("hookmetamethod") and hasFn("getnamecallmethod") and hasFn("checkcaller") and hasFn("newcclosure")
 
 if CAN_HOOK then
-    ----------------------------------------------------------------------
-    -- tab: Silent Aim
-    ----------------------------------------------------------------------
 
     local silentTab = win:Tab("Silent")
     local silent = silentTab:Section("Silent Aim")
     local silentVis = silentTab:Section("Visuals", "right")
 
-    local HOOKED = false   -- becomes true once the metamethod hooks below are installed
+    local HOOKED = false
 
     toggle(silent, "Enabled", "SilentEnabled", false, function(v)
         if v and not HOOKED then
-            -- no camera-flick fallback: silent aim either really is silent, or it stays off
+
             C.SilentEnabled = false
             if TOG.SilentEnabled then TOG.SilentEnabled:Set(false, true) end
             notify("Silent Aim", "Unavailable: this executor cannot hook metamethods (hookmetamethod is missing).", "warn")
@@ -667,11 +606,6 @@ if CAN_HOOK then
         return predicted(silentTarget, C.SilentPredict)
     end
 
-    -- Real silent aim rewrites what the weapon script reads, so it needs metamethod hooks.
-    -- Every path a gun can use to find its target is redirected: workspace raycasts, the old
-    -- FindPartOnRay family, camera ray helpers, and Mouse.Hit / Target / UnitRay. Because the
-    -- direction is rewritten from the ray origin straight to the target, it does not matter
-    -- where the camera is looking.
     local RAY_METHODS = {
         Raycast = true, FindPartOnRay = true, FindPartOnRayWithIgnoreList = true,
         FindPartOnRayWithWhitelist = true, ViewportPointToRay = true, ScreenPointToRay = true,
@@ -742,7 +676,7 @@ if CAN_HOOK then
         end
 
         local origin = cursorOrCenter(C.SilentFollowGun)
-        -- the circle only means something when targets are limited to it
+
         silentCircle(C.SilentFov, origin, C.SilentFovColor, C.SilentShowFov and not C.SilentAnyDir)
 
         silentTarget = selectTarget({
@@ -751,9 +685,8 @@ if CAN_HOOK then
             Part = C.SilentPart, Priority = C.SilentPriority, Sticky = silentTarget and silentTarget.plr or nil,
         })
 
-        U.SilentTarget = silentTarget   -- the custom cursor reads this to name who is being aimed at
+        U.SilentTarget = silentTarget
 
-        -- a target behind the camera has no meaningful screen position, so no line for it
         local showLine = C.SilentFollowTarget and silentTarget ~= nil and silentTarget.onScreen
         silentLine(origin, silentTarget and silentTarget.screen or origin, C.SilentTargetColor, showLine)
         silentDot(silentTarget and silentTarget.screen or origin, C.SilentTargetColor, showLine)
@@ -761,10 +694,6 @@ if CAN_HOOK then
         if os.clock() - silentTick > 0.4 and not firing() then silentTick = os.clock() rollSilent() end
     end)
 end
-
-----------------------------------------------------------------------
--- tab: Triggerbot
-----------------------------------------------------------------------
 
 local trigTab = win:Tab("Trigger")
 local trig = trigTab:Section("Triggerbot")
@@ -787,10 +716,8 @@ local trigSince, trigWait, lastShot = nil, 0, 0
 
 toggle(trigTune, "Include NPCs / Dummies", "TrigNPC", true)
 
--- returns (name, nil) when something valid is under the cursor, otherwise (nil, reason); the reason is
--- shown in the trigger status line so you can see WHY it is not firing
 local function underCrosshair()
-    if cursorOverMenu() then return nil, "cursor is on the menu" end   -- aiming at the menu is not aiming at the world
+    if cursorOverMenu() then return nil, "cursor is on the menu" end
     local pos = UserInputService:GetMouseLocation()
     local ray = cam():ViewportPointToRay(pos.X, pos.Y)
     rayParams.FilterDescendantsInstances = { lp.Character }
@@ -838,11 +765,9 @@ connect(RunService.RenderStepped, function()
     if now - trigSince < trigWait then return end
     if now - lastShot < (C.TrigDelay / 1000) * jitter then return end
     lastShot = now
-    fireWeapon(C.TrigMethod, UserInputService:GetMouseLocation())   -- click where the enemy is under the cursor
+    fireWeapon(C.TrigMethod, UserInputService:GetMouseLocation())
 end)
 
--- trigger status: a small line just below the crosshair while the triggerbot is on. It says what it
--- is aiming at, or why it is not firing (menu, hold key, wrong part, teammate ...).
 do
 local trigText = Instance.new("TextLabel")
 trigText.Name = "TriggerStatus"
@@ -870,14 +795,8 @@ renderLast(function()
         trigText.TextColor3 = Color3.fromRGB(255, 255, 255)
     end
 end)
-end   -- trigger status
+end
 
-----------------------------------------------------------------------
--- tab: Rage
-----------------------------------------------------------------------
-
--- rageTarget stays a file-level local (the cursor label reads it); everything else lives in this
--- block, because Luau allows at most 200 locals per function and the file is right at that limit
 local rageTarget = nil
 do
 local rageTab = win:Tab("Rage")
@@ -888,13 +807,11 @@ local rageAbil = rageTab:Section("Abilities")
 local rageMove = rageTab:Section("Positioning & Spin")
 
 toggle(rage, "Enabled", "RageEnabled", false)
--- while the menu is open Rage does nothing (no clicks, camera, teleport, keys), so the menu is always usable
--- and you can always switch Rage off; it carries on the moment the menu closes
+
 toggle(rage, "Pause While Menu Open", "RagePauseMenu", true)
 dropdown(rage, "Mode", "RageMode", { "Always On", "Hold Key" }, "Always On")
 keybind(rage, "Rage Key", "RageKey", Enum.KeyCode.V)
 
--- who to shoot: everyone (best target by Priority) or one chosen player
 local RAGE_AUTO = "Everyone (Auto)"
 local function rageChoices()
     local names = {}
@@ -951,11 +868,6 @@ end)
 dropdown(rageMove, "Spin Mode", "RageSpinMode", { "Spin", "Jitter" }, "Spin")
 slider(rageMove, "Spin Speed", "RageSpinSpeed", 5, 90, 40, { Suffix = "°" })
 
--- abilities ---------------------------------------------------------------
--- Every tool in the Backpack/hand is an ability (in The Strongest Battlegrounds the four moves are
--- tools). They are listed in "Abilities To Use"; new tools show up ticked, on their own. Loose keys
--- that are not tools (dash, ultimate ...) can be ticked under "Extra Keys". While Rage has a target
--- within range, ticked abilities are used in rotation, each respecting its own cooldown.
 local SLOT_KEYS = {
     Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four, Enum.KeyCode.Five,
     Enum.KeyCode.Six, Enum.KeyCode.Seven, Enum.KeyCode.Eight, Enum.KeyCode.Nine,
@@ -988,7 +900,7 @@ local function refreshAbilities()
     for _, n in ipairs(abilityNames) do known[n] = true end
     for _, n in ipairs(names) do
         if not slotOf[n] then slotOf[n], nextSlot = nextSlot, nextSlot + 1 end
-        if not known[n] then chosenTools[n] = true end   -- a new tool starts ticked
+        if not known[n] then chosenTools[n] = true end
     end
     abilityNames = names
     abilityDD:SetOptions(names)
@@ -1031,7 +943,7 @@ end
 local function useAbility(now, t, off)
     if not C.RageAbilitiesOn or now < nextAbility then return end
     if t.dist > C.RageAbilityRange or off > C.RageAngle then return end
-    if UserInputService:GetFocusedTextBox() then return end   -- never type into chat
+    if UserInputService:GetFocusedTextBox() then return end
 
     local ready = {}
     for _, n in ipairs(abilityNames) do
@@ -1062,12 +974,12 @@ local function useAbility(now, t, off)
     end
     nextAbility = now + C.RageAbilityDelay / 1000
 end
-U.RageAbilityState = function() return abilityNames, chosenTools, chosenKeys end   -- self-tests
+U.RageAbilityState = function() return abilityNames, chosenTools, chosenKeys end
 
-local rageState, rageOnAt = "off", 0   -- "off" | "loading" | "active"; driven by the status pill below
+local rageState, rageOnAt = "off", 0
 local rageLockedAt, rageKills = 0, 0
 local burstLeft, nextShot, nextBurst = 0, 0, 0
-local rageSpun = false                  -- true while WE have AutoRotate switched off for the spin bot
+local rageSpun = false
 
 local function rageReset()
     rageTarget, burstLeft = nil, 0
@@ -1079,7 +991,6 @@ local function rageReset()
 end
 onUnload(rageReset)
 
--- where the local character should stand relative to the target for the chosen Position mode
 local function rageSpot(base, now)
     local d, h, mode = C.RagePosDist, C.RagePosHeight, C.RagePosition
     local up = Vector3.new(0, h, 0)
@@ -1090,7 +1001,7 @@ local function rageSpot(base, now)
         local a = now * C.RagePosSpeed
         return base.Position + Vector3.new(math.cos(a), 0, math.sin(a)) * d + up
     end
-    -- Strafe: slides left and right of the target's facing
+
     return base.Position + base.RightVector * math.sin(now * C.RagePosSpeed) * d + up
 end
 
@@ -1102,7 +1013,7 @@ end
 renderLast(function(dt)
     if not (C.RageEnabled and U.Running) or rageState ~= "active"
         or (C.RageMode == "Hold Key" and not (BIND.RageKey and BIND.RageKey:IsDown())) then
-        -- off / warming up / key released: drop the target, give the character its rotation back
+
         if rageTarget and rageTarget.hum.Health <= 0 then rageKills += 1 end
         rageReset()
         return
@@ -1123,7 +1034,6 @@ renderLast(function(dt)
         hum.AutoRotate = true
     end
 
-    -- keep the current target for a minimum time (or forever when Sticky) so it does not flicker
     local prev = rageTarget
     local keep = prev and (C.RageSticky or now - rageLockedAt < C.RageSwitch)
     local t = selectTarget({
@@ -1148,8 +1058,7 @@ renderLast(function(dt)
         if C.RagePosSmooth > 0 then
             spot = root.Position:Lerp(spot, 1 - (C.RagePosSmooth / 100) ^ (math.min(dt, 0.1) * 60))
         end
-        -- stay upright: face the target on our own height. Straight above/below it there is no
-        -- horizontal direction (lookAt would produce a NaN CFrame), so keep the current yaw then.
+
         local flat = Vector3.new(base.Position.X - spot.X, 0, base.Position.Z - spot.Z)
         if flat.Magnitude > 0.05 then
             root.CFrame = CFrame.lookAt(spot, spot + flat)
@@ -1172,7 +1081,6 @@ renderLast(function(dt)
     if not C.RageShoot then return end
     if off > C.RageAngle then return end
 
-    -- burst fire: RageBurst shots RageBurstGap ms apart, then wait the (jittered) shoot delay
     local function delay()
         local jitter = 1 + (math.random() * 2 - 1) * C.RageJitter / 100
         return (C.RageDelay / 1000) * jitter
@@ -1186,13 +1094,7 @@ renderLast(function(dt)
         if burstLeft == 0 then nextBurst = now + delay() end
     end
 end)
-U.RageTarget = function() return rageTarget end   -- exposed for self-tests
-
--- rage status -----------------------------------------------------------
--- Plain text, fixed just above the middle of the screen, for as long as Rage is on:
--- "RAGE LOADING..." with animated dots during the warm-up, then "RAGE ACTIVE" (with the
--- target's name) - or "RAGE READY" in hold-key mode while the key is up. The colour (or
--- rainbow) is chosen on the Notifications page. It disappears the moment Rage is switched off.
+U.RageTarget = function() return rageTarget end
 
 local rageText = Instance.new("TextLabel")
 rageText.Name = "RageStatus"
@@ -1214,7 +1116,7 @@ local function rageTextColor()
 end
 
 renderLast(function(dt)
-    -- state follows the flag, however it got switched (button, keybind or a loaded config)
+
     if C.RageEnabled and U.Running then
         if rageState == "off" then rageState, rageOnAt, rageKills = "loading", os.clock(), 0 end
         if rageState == "loading" and os.clock() - rageOnAt >= C.RageWarmup then rageState = "active" end
@@ -1229,7 +1131,7 @@ renderLast(function(dt)
 
     local text
     if rageState == "loading" then
-        -- one to three dots, padded with spaces so the text does not shift sideways
+
         local dots = string.rep(".", 1 + math.floor(os.clock() * 3) % 3)
         text = "RAGE LOADING" .. dots .. string.rep(" ", 3 - #dots)
     else
@@ -1255,11 +1157,7 @@ renderLast(function(dt)
     rageText.TextStrokeTransparency = math.clamp(0.35 + (1 - rageAlpha), 0, 1)
     rageText.Position = UDim2.fromOffset(center.X, center.Y - 30)
 end)
-end   -- rage block
-
-----------------------------------------------------------------------
--- tab: Cursor (custom crosshair + "aiming at" label)
-----------------------------------------------------------------------
+end
 
 local curTab = win:Tab("Cursor")
 local cur = curTab:Section("Crosshair")
@@ -1296,7 +1194,6 @@ toggle(curTxt, "Same Color As Cursor", "CursorLabelSame", true)
 color(curTxt, "Text Color", "CursorLabelColor", Color3.fromRGB(255, 255, 255))
 dropdown(curTxt, "Text Animation", "CursorLabelAnim", { "None", "Pulse", "Pop", "Fade" }, "None")
 
--- what each style is made of: arm angles (degrees), plus a centre dot and/or a ring
 local STYLE_PARTS = {
     ["Cross + Dot"]  = { arms = { 0, 90, 180, 270 }, dot = true },
     ["Cross"]        = { arms = { 0, 90, 180, 270 } },
@@ -1331,7 +1228,6 @@ local function curPiece(round)
     return { frame = f, stroke = stroke }
 end
 
--- 8 arms, each of which can be split into two dashes = 16 pieces at most
 local curArms = {}
 for i = 1, 16 do curArms[i] = curPiece(false) end
 local curDot = curPiece(true)
@@ -1360,7 +1256,6 @@ curLabel.Parent = curRoot
 
 onUnload(function() curRoot:Destroy() end)
 
--- the normal pointer is hidden while the custom one is drawn, and handed back afterwards
 local sysIconOriginal
 local function setSystemCursor(visibleIcon)
     if sysIconOriginal == nil then sysIconOriginal = UserInputService.MouseIconEnabled end
@@ -1374,11 +1269,10 @@ local function restoreSystemCursor()
 end
 onUnload(restoreSystemCursor)
 
--- who is being aimed at: rage / aimbot / silent target first, otherwise whoever is under the cursor
 local function cursorTargetPlayer(pos)
     if C.CursorSource ~= "Under Crosshair" then
         local t = (C.RageEnabled and rageTarget) or (C.AimEnabled and aimTarget) or U.SilentTarget
-        if t and t.plr and charOf(t.plr) then return t.plr end   -- dead players are never shown
+        if t and t.plr and charOf(t.plr) then return t.plr end
     end
     local ray = cam():ViewportPointToRay(pos.X, pos.Y)
     rayParams.FilterDescendantsInstances = { lp.Character }
@@ -1389,7 +1283,7 @@ local function cursorTargetPlayer(pos)
     if plr and plr ~= lp and charOf(plr) then return plr end
 end
 
-local curScale = 1            -- smoothed scale for the "on target" animations
+local curScale = 1
 local curLastPlr, curNewAt = nil, 0
 
 renderLast(function()
@@ -1399,7 +1293,6 @@ renderLast(function()
         return
     end
 
-    -- over the menu the normal pointer is needed to click anything
     if cursorOverMenu() then
         curRoot.Visible = false
         setSystemCursor(true)
@@ -1417,7 +1310,6 @@ renderLast(function()
     local plr = cursorTargetPlayer(pos)
     if plr ~= curLastPlr then curLastPlr, curNewAt = plr, t end
 
-    -- size animation ---------------------------------------------------
     local speed, amount, anim = C.CursorAnimSpeed, C.CursorAnimAmount, C.CursorAnim
     local goalScale = 1
     if anim == "Pulse" then
@@ -1439,7 +1331,6 @@ renderLast(function()
     local spin = (t * C.CursorSpin) % 360
     local parts = STYLE_PARTS[C.CursorStyle] or STYLE_PARTS["Cross + Dot"]
 
-    -- arms (or dashes)
     local used = 0
     if parts.arms then
         local segments = C.CursorDashed and { { 0, 0.4 }, { 0.6, 1 } } or { { 0, 1 } }
@@ -1462,7 +1353,6 @@ renderLast(function()
     end
     for i = used + 1, #curArms do curArms[i].frame.Visible = false end
 
-    -- centre dot
     curDot.frame.Visible = parts.dot == true
     if parts.dot then
         local d = C.CursorDot * curScale
@@ -1472,7 +1362,6 @@ renderLast(function()
         curDot.stroke.Enabled = C.CursorOutline
     end
 
-    -- ring
     curRing.Visible = parts.ring == true
     if parts.ring then
         local d = size * 2
@@ -1481,7 +1370,6 @@ renderLast(function()
         curRingStroke.Thickness = thick
     end
 
-    -- "aiming at" label --------------------------------------------------
     local showLabel = C.CursorLabel and plr ~= nil
     curLabel.Visible = showLabel
     if showLabel then
@@ -1499,7 +1387,7 @@ renderLast(function()
         if ta == "Pulse" then
             textScale = 1 + math.sin(t * speed * 2 * math.pi) * amount * 0.5
         elseif ta == "Pop" then
-            -- springs in with a little overshoot each time the target changes
+
             local p = math.clamp((t - curNewAt) / 0.35, 0, 1)
             local c1 = 1.70158
             local ease = 1 + (c1 + 1) * (p - 1) ^ 3 + c1 * (p - 1) ^ 2
@@ -1515,10 +1403,6 @@ renderLast(function()
         curLabel.Position = UDim2.fromOffset(0, extent)
     end
 end)
-
-----------------------------------------------------------------------
--- tab: Visuals (ESP)
-----------------------------------------------------------------------
 
 local visTab = win:Tab("Visuals")
 local esp = visTab:Section("Player ESP")
@@ -1581,8 +1465,6 @@ local function label(parent, props)
     return l
 end
 
--- Joint pairs (world positions) for the skeleton. R6 uses the tops / bottoms of the limbs and torso,
--- R15 the centres of the body parts. Anything missing is simply skipped.
 U.skelBones = function(char, hum)
     local out = {}
     local function part(name)
@@ -1614,8 +1496,8 @@ U.skelBones = function(char, hum)
             local neck, pelvis = top(torso), bottom(torso)
             add(head and head.Position, neck)
             add(neck, pelvis)
-            add(la and top(la), ra and top(ra))       -- shoulders
-            add(ll and top(ll), rl and top(rl))       -- hips
+            add(la and top(la), ra and top(ra))
+            add(ll and top(ll), rl and top(rl))
         end
         for _, name in ipairs({ "Left Arm", "Right Arm", "Left Leg", "Right Leg" }) do
             local limb = part(name)
@@ -1633,9 +1515,6 @@ local function buildESP(plr)
     o.hl.Enabled = false
     o.hl.Parent = espRoot
 
-    -- health bar: a dark track just left of the box, the fill grows from the bottom up. It is a plain 2D
-    -- frame on the overlay, placed every frame from the projected corners of the 3D box (a BillboardGui
-    -- carrying only frames did not render at all, so this cannot go missing)
     o.hpBack = frame(overlay, {
         Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(4, 10), Visible = false,
         BackgroundColor3 = Color3.fromRGB(15, 15, 15), BackgroundTransparency = 0.15,
@@ -1649,13 +1528,11 @@ local function buildESP(plr)
         BackgroundColor3 = Color3.fromRGB(70, 220, 90),
     })
 
-    -- skeleton: up to 14 thin 2D lines between joints, drawn on the overlay like the tracer
     o.bones = {}
     for i = 1, 14 do
         o.bones[i] = frame(overlay, { AnchorPoint = Vector2.new(0.5, 0.5), Visible = false })
     end
 
-    -- text stack above the head; hidden labels take no space (bottom aligned)
     o.info = Instance.new("BillboardGui")
     o.info.AlwaysOnTop = true
     o.info.LightInfluence = 0
@@ -1677,8 +1554,6 @@ local function buildESP(plr)
         Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 3, Font = Enum.Font.Gotham, TextSize = 12,
     })
 
-    -- real 3D box: 12 thin edges adorned straight onto the root part (no extra parts in the
-    -- workspace). Fixed proportions on purpose - the true bounding box balloons with tools.
     o.edges = {}
     for i = 1, 12 do
         local e = Instance.new("BoxHandleAdornment")
@@ -1758,7 +1633,7 @@ connect(RunService.RenderStepped, function()
                 if not show then
                     hideESP(o)
                 else
-                    -- blacklist / whitelist colours win over team colours
+
                     local listCol = (U.Black[plr.Name] and C.ListBlackColor) or (U.White[plr.Name] and C.ListWhiteColor) or nil
                     local teamCol = listCol or (C.ESPTeamColors and plr.Team and plr.TeamColor.Color)
 
@@ -1768,8 +1643,6 @@ connect(RunService.RenderStepped, function()
                     o.hl.FillTransparency = C.ESPFillTrans
                     o.hl.Enabled = C.ESPChams
 
-                    -- health bar: project the 8 corners of the (invisible or drawn) 3D box to the screen and put
-                    -- the bar just left of the leftmost corner, as tall as the box appears on screen
                     o.hpBack.Visible = false
                     if C.ESPHealth then
                         local sx, sy, sz = 4 * C.ESP3DScale, 5.8 * C.ESP3DScale, 2.6 * C.ESP3DScale
@@ -1791,7 +1664,6 @@ connect(RunService.RenderStepped, function()
                         end
                     end
 
-                    -- 3D box
                     if C.ESP3D then
                         local sig = C.ESP3DScale .. "|" .. C.ESP3DThick
                         if o.edgeSig ~= sig then layoutEdges(o, C.ESP3DScale, C.ESP3DThick) end
@@ -1824,13 +1696,11 @@ connect(RunService.RenderStepped, function()
                         o.heldLabel.Text = tool and ("[ " .. tool.Name .. " ]") or ""
                     end
 
-                    -- health bar fill, every frame: grows from the bottom, green (or shifting to red when enabled)
                     local frac = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
                     o.hpFill.Size = UDim2.new(1, 0, frac, 0)
                     o.hpFill.BackgroundColor3 = C.ESPHealthShift
                         and Color3.fromRGB(230, 60, 60):Lerp(C.ESPHealthColor, frac) or C.ESPHealthColor
 
-                    -- skeleton
                     if C.ESPSkeleton then
                         local joints = U.skelBones(char, hum)
                         local skelCol = teamCol or C.ESPSkelColor
@@ -1878,8 +1748,6 @@ connect(RunService.RenderStepped, function()
     end
 end)
 
--- view -----------------------------------------------------------------
-
 local originalLighting
 toggle(world, "Fullbright", "Fullbright", false, function(v)
     if v and not originalLighting then
@@ -1919,10 +1787,6 @@ onUnload(function()
     if originalLighting then for k, val in pairs(originalLighting) do pcall(function() Lighting[k] = val end) end end
     if originalFov then cam().FieldOfView = originalFov end
 end)
-
-----------------------------------------------------------------------
--- tab: Movement
-----------------------------------------------------------------------
 
 local moveTab = win:Tab("Movement")
 local move = moveTab:Section("Speed & Jump")
@@ -1970,8 +1834,6 @@ toggle(move, "Anti Stun", "AntiStun", false, function(v)
     end)
 end)
 
--- fly ------------------------------------------------------------------
-
 local flyState = {}
 local function stopFly()
     if flyState.bv then flyState.bv:Destroy() flyState.bv = nil end
@@ -2018,15 +1880,13 @@ renderLast(function(dt)
     end
     local want = dir.Magnitude > 0 and dir.Unit * C.FlySpeed or Vector3.zero
     if C.FlySmooth > 0 then
-        -- frame-rate independent glide: 0% = instant, 95% = very floaty
+
         want = flyState.bv.Velocity:Lerp(want, 1 - (C.FlySmooth / 100) ^ (math.min(dt, 0.1) * 60))
     end
     flyState.bv.Velocity = want
     flyState.bg.CFrame = CFrame.lookAt(root.Position, root.Position + Vector3.new(look.LookVector.X, 0, look.LookVector.Z))
 end)
 onUnload(stopFly)
-
--- noclip -----------------------------------------------------------------
 
 local noclipOriginal = {}
 toggle(fly, "Noclip", "Noclip", false, function(v)
@@ -2050,8 +1910,6 @@ local function applyNoclip()
     end
 end
 connect(RunService.Stepped, applyNoclip)
-
--- speed / jump / anti stun locks (Last priority beats the game's own scripts) ---
 
 local lastGoodSpeed, lastGoodJump, antiStunScan = 16, 50, 0
 renderLast(function()
@@ -2083,7 +1941,6 @@ renderLast(function()
         if hum.UseJumpPower and hum.JumpPower < 1 then hum.JumpPower = C.JumpEnabled and C.JumpValue or lastGoodJump end
         if root and root.Anchored then root.Anchored = false end
 
-        -- ragdoll systems break the joints; re-enable them (scanned 4x a second, not every frame)
         if os.clock() - antiStunScan > 0.25 then
             antiStunScan = os.clock()
             local _, _, char = myHumanoid()
@@ -2097,21 +1954,12 @@ renderLast(function()
     end
 end)
 
-----------------------------------------------------------------------
--- tab: Defense (anti fling / anti void / anti aim)
-----------------------------------------------------------------------
-
 local defTab = win:Tab("Defense")
 local aflSec = defTab:Section("Anti Fling")
 local aaSec = defTab:Section("Anti Aim")
 local avSec = defTab:Section("Anti Void", "right")
 local dsSec = defTab:Section("Desync", "right")
 local arSec = defTab:Section("Anti Ragdoll")
-
--- anti fling ------------------------------------------------------------
--- 1) other players' bodies stop colliding with ours, so nothing can physically shove us
--- 2) if our own velocity spikes past what we could produce ourselves, cancel it and step
---    back to where we were a moment ago
 
 local collisionOriginal = setmetatable({}, { __mode = "k" })
 local function restoreCollisions()
@@ -2147,12 +1995,10 @@ connect(RunService.Heartbeat, function()
     local hum, root = myHumanoid()
     if not (hum and root) then return end
 
-    -- what we could legitimately be doing ourselves
     local allowed = C.AntiFlingSpeed
     if C.SpeedEnabled then allowed = math.max(allowed, C.SpeedValue * 1.6) end
     if C.FlyEnabled then allowed = math.max(allowed, C.FlySpeed * 1.6) end
 
-    -- falling fast is normal, so only sideways speed and upward speed count
     local vel = root.AssemblyLinearVelocity
     local speed = math.max(Vector3.new(vel.X, 0, vel.Z).Magnitude, math.max(vel.Y, 0))
     if speed > allowed or root.AssemblyAngularVelocity.Magnitude > 80 then
@@ -2168,13 +2014,6 @@ connect(RunService.Heartbeat, function()
     end
 end)
 
--- anti ragdoll ------------------------------------------------------------
--- The Strongest Battlegrounds flags its states with Accessory instances on the character:
--- "Ragdoll" / "RagdollSim" = ragdolled (server sets PlatformStand + FallingDown), "Freeze" = hit
--- stun (WalkSpeed and JumpPower forced to 0). We own our own physics, so while a flag is present we
--- refuse the state changes every frame. Nothing is deleted, so the game's own scripts keep working;
--- the server still believes we are ragdolled, so moves it validates itself may still be blocked.
-
 toggle(arSec, "Anti Ragdoll", "AntiRagdoll", false)
 toggle(arSec, "Cancel Hit Stun", "AntiRagdollStun", false)
 
@@ -2187,7 +2026,7 @@ renderLast(function()
     local ragged = char:FindFirstChild("Ragdoll") or char:FindFirstChild("RagdollSim")
     local stunned = C.AntiRagdollStun and char:FindFirstChild("Freeze")
     if not (ragged or stunned) then
-        -- remember our normal values so they can be put back afterwards
+
         if hum.WalkSpeed > 0 then ragSpeed = hum.WalkSpeed end
         if hum.JumpPower > 0 then ragJump = hum.JumpPower end
         return
@@ -2216,10 +2055,6 @@ renderLast(function()
         end
     end
 end)
-
--- anti void -------------------------------------------------------------
--- remembers the last solid ground you stood on; if you drop under the rescue line
--- (a margin above the map's FallenPartsDestroyHeight) you are put back there
 
 toggle(avSec, "Anti Void", "AntiVoid", false)
 slider(avSec, "Rescue Margin", "VoidMargin", 20, 400, 150, { Suffix = " st" })
@@ -2253,15 +2088,6 @@ connect(RunService.Heartbeat, function()
     end
 end)
 
--- anti aim + desync ----------------------------------------------------------------
--- Other players see where the server says we are. Right after physics each frame we shift our
--- root by an offset, and at the very start of the next render frame we take exactly that shift
--- back out - so the network snapshot is off while your own screen never shows it.
---   Anti Aim = a random jitter / spin every frame (nothing to lock onto)
---   Desync   = a steady offset: they see you beside, behind or above where you really are, a
---              step behind your movement (Lag), or circling your real position (Orbit)
--- Both can be on together; their offsets are combined into one shift that is undone as one.
-
 local aaApplied
 local function undoAntiAim()
     if aaApplied then
@@ -2277,8 +2103,8 @@ dropdown(aaSec, "Mode", "AntiAimMode", { "Jitter", "Spin", "Jitter + Spin" }, "J
 slider(aaSec, "Jitter Range", "AntiAimRange", 0.5, 10, 3, { Decimals = 1, Suffix = " st" })
 slider(aaSec, "Spin Amount", "AntiAimSpin", 10, 120, 60, { Suffix = "°" })
 
-local desyncAnchor      -- "Stay Here": the spot other players keep seeing you at
-local lagHistory = {}    -- "Lag": recent real positions with timestamps
+local desyncAnchor
+local lagHistory = {}
 
 toggle(dsSec, "Desync", "Desync", false, function(v)
     if v then desyncAnchor, lagHistory = nil, {} else undoAntiAim() end
@@ -2298,25 +2124,21 @@ local DESYNC_DIRS = {
     Right = Vector3.new(1, 0, 0), Above = Vector3.new(0, 1, 0),
 }
 
--- The shift to apply, as a CFrame in the root's own space (+Z is behind the character).
--- Applying it moves the root to where other players should see it.
 local function desyncShift(root)
     local mode = C.DesyncMode
     local dir = DESYNC_DIRS[mode]
     if dir then return CFrame.new(dir * C.DesyncDist) end
 
     if mode == "Stay Here" then
-        -- others keep seeing you where the anchor was set while you walk around freely
+
         if not desyncAnchor then desyncAnchor = root.CFrame end
-        -- gone too far: the anchor moves to you, so the ghost never ends up hundreds of studs away
-        -- slider at its maximum (300) = infinite: never re-anchor
+
         if C.DesyncStayRadius < 300 and (root.Position - desyncAnchor.Position).Magnitude > C.DesyncStayRadius then desyncAnchor = root.CFrame end
         return root.CFrame:ToObjectSpace(desyncAnchor)
     end
 
     if mode == "Lag" then
-        -- others see where you were `DesyncLag` seconds ago, read back from a history of your
-        -- real positions (independent of how the game moves the character)
+
         local now = os.clock()
         table.insert(lagHistory, { t = now, pos = root.Position })
         local target = now - C.DesyncLag
@@ -2324,18 +2146,18 @@ local function desyncShift(root)
         for i = 1, #lagHistory do
             if lagHistory[i].t <= target then keep = i else break end
         end
-        for _ = 2, keep do table.remove(lagHistory, 1) end   -- drop what is older than the bracket
+        for _ = 2, keep do table.remove(lagHistory, 1) end
         local a, b = lagHistory[1], lagHistory[2]
         local goal
         if a.t >= target or not b then
-            goal = a.pos                                      -- history not that long yet
+            goal = a.pos
         else
             goal = a.pos:Lerp(b.pos, math.clamp((target - a.t) / math.max(b.t - a.t, 1e-4), 0, 1))
         end
         return root.CFrame:ToObjectSpace(CFrame.new(goal) * root.CFrame.Rotation)
     end
 
-    local a = os.clock() * C.DesyncOrbit * 2 * math.pi   -- Orbit
+    local a = os.clock() * C.DesyncOrbit * 2 * math.pi
     return CFrame.new(Vector3.new(math.cos(a), 0, math.sin(a)) * C.DesyncDist)
 end
 
@@ -2343,13 +2165,13 @@ connect(RunService.Heartbeat, function()
     if not ((C.AntiAim or C.Desync) and U.Running) then return end
     local _, root = myHumanoid()
     if not root then return end
-    undoAntiAim()   -- a render step may have been skipped; never stack two shifts
+    undoAntiAim()
 
     local total = CFrame.new()
     if C.Desync then
         local ds = desyncShift(root)
         total = total * ds
-        U.GhostCF = root.CFrame * ds   -- where other players see the character (for the "copy" below)
+        U.GhostCF = root.CFrame * ds
     else
         U.GhostCF = nil
     end
@@ -2369,17 +2191,10 @@ connect(RunService.Heartbeat, function()
     root.CFrame = root.CFrame * total
 end)
 
--- desync copy -------------------------------------------------------------
--- A plain copy of your character (same looks, clothes, accessories) drawn where OTHER players see you (the desynced spot), so
--- you can check it on your own screen. It only exists on your client (parented to the camera) and
--- mirrors your live pose relative to the shifted root, so animations play on it exactly as others
--- see them.
 do
 local ghost, ghostChar, ghostPairs, ghostCount = nil, nil, {}, 0
 toggle(dsSec, "Show Copy", "DesyncGhost", true)
 
--- The Humanoid and the joints stay: clothes, body colours and CharacterMesh limbs are only applied
--- to a model that still has a Humanoid, without it the copy would be bare grey/coloured blocks.
 local JUNK = { "Script", "LocalScript", "ModuleScript", "Animator", "Sound", "BillboardGui", "SurfaceGui",
     "ParticleEmitter", "Beam", "Trail", "Light", "Tool", "ForceField", "Highlight" }
 
@@ -2428,8 +2243,7 @@ local function buildGhost(char)
             if d.Parent and d:IsA(cls) then d:Destroy() break end
         end
     end
-    -- a joint that still points at a part OUTSIDE the copy (a cloned weld keeps its original target)
-    -- would weld the anchored copy to your real character and freeze you: cut those
+
     for _, d in ipairs(copy:GetDescendants()) do
         if d:IsA("JointInstance") or d:IsA("WeldConstraint") then
             local a, b = d.Part0, d.Part1
@@ -2438,14 +2252,13 @@ local function buildGhost(char)
     end
     local cloneHum = copy:FindFirstChildOfClass("Humanoid")
     if cloneHum then
-        cloneHum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None   -- no name tag / health bar
+        cloneHum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
         cloneHum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
         cloneHum.RequiresNeck, cloneHum.BreakJointsOnDeath = false, false
-        -- a live Humanoid keeps switching CanCollide back on for torso and limbs, and then the copy
-        -- (standing where you were) blocks your real character. Freeze its state machine.
+
         cloneHum.EvaluateStateMachine = false
     end
-    for i = #pairsList, 1, -1 do   -- parts that lived inside removed junk (e.g. a Tool's Handle) are gone
+    for i = #pairsList, 1, -1 do
         if not pairsList[i].g:IsDescendantOf(copy) then table.remove(pairsList, i) end
     end
     copy.Name = "DesyncCopy"
@@ -2467,15 +2280,11 @@ renderLast(function()
     for _, pr in ipairs(ghostPairs) do
         if pr.o.Parent then
             pr.g.CFrame = U.GhostCF * (rel * pr.o.CFrame)
-            pr.g.CanCollide = false   -- belt and braces: the copy must never touch you
+            pr.g.CanCollide = false
         end
     end
 end)
-end   -- desync copy block
-
-----------------------------------------------------------------------
--- tab: Player
-----------------------------------------------------------------------
+end
 
 local playerTab = win:Tab("Player")
 local tp = playerTab:Section("Teleport & Spectate")
@@ -2490,13 +2299,13 @@ local function playerNames()
     return names
 end
 
-local renderInventory   -- assigned by the Inventory section below
+local renderInventory
 local playerDD = tp:Dropdown({ Text = "Player", Options = playerNames(), Flag = "SelectedPlayer", NoSave = true,
     Callback = function(v)
         C.SelectedPlayer = v
         if renderInventory then renderInventory() end
     end })
-local orbitDD   -- assigned by the Orbit section below
+local orbitDD
 local function refreshPlayers()
     playerDD:SetOptions(playerNames())
     if orbitDD then orbitDD:SetOptions(playerNames()) end
@@ -2508,7 +2317,7 @@ tp:Button({ Text = "Teleport To Player", Callback = function()
     local target = C.SelectedPlayer and Players:FindFirstChild(C.SelectedPlayer)
     local root
     if target then
-        local _, _, r = charOf(target)   -- (multi-return: never use `a and f()` here)
+        local _, _, r = charOf(target)
         root = r
     end
     local _, myRoot = myHumanoid()
@@ -2546,12 +2355,9 @@ connect(UserInputService.InputBegan, function(input, gp)
     if res and root then root.CFrame = CFrame.new(res.Position + Vector3.new(0, 4, 0)) end
 end)
 
--- follow ---------------------------------------------------------------
-
 local follow = playerTab:Section("Follow Player")
-local followAutoAt = 0   -- when the Auto Distance glide started, so it always begins at the far end
+local followAutoAt = 0
 
--- follow and orbit both drive our position, so only one may be on at a time
 toggle(follow, "Follow Selected Player", "FollowEnabled", false, function(v)
     if v then followAutoAt = os.clock() end
     if v and C.OrbitEnabled and TOG.OrbitEnabled then
@@ -2567,14 +2373,11 @@ slider(follow, "Auto Far", "FollowAutoFar", 0, 30, 5, { Decimals = 1, Suffix = "
 slider(follow, "Auto Near", "FollowAutoNear", 0, 30, 0, { Decimals = 1, Suffix = " st" })
 slider(follow, "Auto Speed", "FollowAutoSpeed", 0.1, 4, 0.6, { Decimals = 2, Suffix = "/s" })
 
--- Auto Distance glides far -> near -> far continuously: a cosine, so the speed eases to zero
--- at both ends and there is never a jump or a sudden stop.
 local function followDistance()
     if not C.FollowAuto then return C.FollowDist end
     local far = math.max(C.FollowAutoFar, C.FollowAutoNear)
     local near = math.min(C.FollowAutoFar, C.FollowAutoNear)
-    -- measured from the moment it was switched on: cos(0) = 1, so it starts at the far end
-    -- (no jump) and then glides toward the near end and back
+
     local wave = 0.5 + 0.5 * math.cos((os.clock() - followAutoAt) * C.FollowAutoSpeed * 2 * math.pi)
     return near + (far - near) * wave
 end
@@ -2588,7 +2391,7 @@ renderLast(function()
     if not (targetRoot and myRoot) then return end
 
     local base = targetRoot.CFrame
-    -- +Z is behind a character (its LookVector is -Z)
+
     local pos = base:PointToWorldSpace(Vector3.new(0, C.FollowHeight, followDistance()))
     local toward = Vector3.new(base.Position.X - pos.X, 0, base.Position.Z - pos.Z)
     if C.FollowFace and toward.Magnitude > 0.05 then
@@ -2598,8 +2401,6 @@ renderLast(function()
     end
     myRoot.AssemblyLinearVelocity = Vector3.zero
 end)
-
--- orbit ------------------------------------------------------------------
 
 local orbit = playerTab:Section("Orbit Player")
 orbitDD = orbit:Dropdown({ Text = "Orbit Player", Options = playerNames(), Flag = "OrbitPlayer", NoSave = true,
@@ -2640,7 +2441,7 @@ renderLast(function(dt)
     local center = targetRoot.Position
     local pos = center + offset
     if C.OrbitLock then
-        -- the character faces the target and the camera stays locked onto them
+
         myRoot.CFrame = CFrame.lookAt(pos, center)
         local c = cam()
         c.CFrame = CFrame.lookAt(c.CFrame.Position, center)
@@ -2650,10 +2451,6 @@ renderLast(function(dt)
     myRoot.AssemblyLinearVelocity = Vector3.zero
 end)
 
--- no animations ----------------------------------------------------------
--- We own our character's Animator, and animation playback replicates from the owner to the server,
--- so stopping our own tracks is what other players see too (a track stopped in the same frame it
--- started never gets sent). The game's own scripts keep playing them, so it is redone every frame.
 do
 local animSec = playerTab:Section("Animations", "right")
 
@@ -2666,7 +2463,7 @@ end
 toggle(animSec, "No Animations", "NoAnim", false, function(v)
     if v then return end
     setAnimateScript(false)
-    -- frozen tracks would stay frozen; stop them so the game restarts fresh ones
+
     local hum = myHumanoid()
     local animator = hum and hum:FindFirstChildOfClass("Animator")
     if animator then
@@ -2684,7 +2481,7 @@ local function suppress(track)
     if mode == "Freeze Pose" then
         if track.Speed ~= 0 then track:AdjustSpeed(0) end
     elseif mode == "Stop Attacks Only" then
-        -- Action priorities are what games use for moves; movement / idle / core are left alone
+
         local pv = track.Priority.Value
         if pv >= Enum.AnimationPriority.Action.Value and pv < Enum.AnimationPriority.Core.Value then track:Stop(0) end
     else
@@ -2692,9 +2489,6 @@ local function suppress(track)
     end
 end
 
--- A track is stopped the moment it starts (AnimationPlayed), and everything still playing is swept at
--- the start of the frame, after the game's own render code, after physics and right before the frame
--- is sent to the server - a single sweep per frame let some tracks slip through for a frame.
 local hooked, hookConn
 local function sweep()
     if not (C.NoAnim and U.Running) then return end
@@ -2703,7 +2497,7 @@ local function sweep()
     if C.NoAnimMode == "Stop All" and C.NoAnimScript then setAnimateScript(true) end
     local animator = hum:FindFirstChildOfClass("Animator")
     if not animator then return end
-    if animator ~= hooked then   -- new character / new Animator: hook it
+    if animator ~= hooked then
         if hookConn then hookConn:Disconnect() end
         hooked = animator
         hookConn = animator.AnimationPlayed:Connect(function(track)
@@ -2718,11 +2512,7 @@ renderFirst(sweep)
 renderLast(sweep)
 connect(RunService.Stepped, sweep)
 connect(RunService.Heartbeat, sweep)
-end   -- no animations
-
--- inventory inspector ----------------------------------------------------
--- Roblox only replicates other players' Backpack in games that choose to; whatever the
--- server does not send simply cannot be shown.
+end
 
 local inv = playerTab:Section("Inventory", "right")
 toggle(inv, "Live Refresh", "InvLive", true)
@@ -2753,7 +2543,6 @@ local function inventoryLines(plr)
         table.insert(lines, "  - " .. name)
     end
 
-    -- games that store an inventory as folders on the player
     for _, child in ipairs(plr:GetChildren()) do
         if not INV_SKIP[child.Name] and (child:IsA("Folder") or child:IsA("Configuration")) then
             local n = #child:GetChildren()
@@ -2812,14 +2601,6 @@ misc1:Button({ Text = "Server Hop", Callback = function()
     end)
 end })
 
-----------------------------------------------------------------------
--- whitelist & blacklist
-----------------------------------------------------------------------
-
--- Whitelist = friends: skipped by aimbot, silent aim, triggerbot and rage, and drawn in their own
--- colour in the ESP. Blacklist = priority targets: aimed at first, drawn in their own colour, and with
--- "Only Target Blacklist" nobody else is targeted at all. A player is on at most one list. The lists are
--- stored by player NAME, so they survive someone leaving and rejoining (and are saved in configs).
 do
 local listSec = playerTab:Section("Whitelist & Blacklist", "right")
 local whiteDD, blackDD
@@ -2841,7 +2622,6 @@ local function pickedOf(set)
     return picked
 end
 
--- a dropdown only knows the players that are here right now, so entries of absent players are kept
 local function takePicks(set, other, picks)
     local present = presentNames()
     for name in pairs(set) do
@@ -2849,7 +2629,7 @@ local function takePicks(set, other, picks)
     end
     for _, name in ipairs(picks) do
         set[name] = true
-        other[name] = nil          -- never on both lists
+        other[name] = nil
     end
 end
 
@@ -2878,11 +2658,10 @@ toggle(listSec, "Skip Whitelisted Players", "ListRespectWhite", true)
 toggle(listSec, "Target Blacklisted First", "ListBlackFirst", true)
 toggle(listSec, "Only Target Blacklist", "ListOnlyBlack", false)
 
--- Roblox friends never become targets: they are added to the whitelist as they join
 local function whitelistFriends()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= lp and not U.White[plr.Name] then
-            local ok, isFriend = pcall(lp.IsFriendsWith, lp, plr.UserId)   -- yields, hence the thread
+            local ok, isFriend = pcall(lp.IsFriendsWith, lp, plr.UserId)
             if ok and isFriend then
                 U.White[plr.Name] = true
                 U.Black[plr.Name] = nil
@@ -2897,16 +2676,8 @@ end)
 connect(Players.PlayerAdded, function()
     if C.AutoWhiteFriends then task.delay(1, whitelistFriends) end
 end)
-end   -- lists
+end
 
-----------------------------------------------------------------------
--- tab: Fling (fling / fling all / void spam)
-----------------------------------------------------------------------
-
--- Touch fling: we stick to the target's root part while spinning at absurd speed, so the physics
--- contact throws them. Velocity is only applied for the physics step and zeroed again on the next
--- render frame, so we never fly off ourselves. One job runs at a time (flingBusy); bumping
--- flingToken cancels it. Whitelisted players are always skipped.
 do
 local flingTab = win:Tab("Fling")
 local flg = flingTab:Section("Fling")
@@ -2935,7 +2706,6 @@ local function goHome(origin)
     end
 end
 
--- our own body must not collide while we sit inside the target
 connect(RunService.Stepped, function()
     if not (flingBusy and U.Running) then return end
     local _, _, char = myHumanoid()
@@ -2945,9 +2715,6 @@ connect(RunService.Stepped, function()
     end
 end)
 
--- One attempt on one player. Returns "done" (launched / in the void), "gone" (dead, respawning or
--- left), "timeout", "me" (we have no character) or "cancel".
--- below this height a player counts as "in the void" (kill line plus the Void Depth slider)
 local function voidLine() return math.max(workspace.FallenPartsDestroyHeight, -1000) + C.VoidDepth end
 
 local function attack(target, void, token)
@@ -2972,7 +2739,6 @@ local function attack(target, void, token)
 
         if C.FlingCamera then cam().CameraSubject = tHum end
 
-        -- lead a moving target a little, and wobble so the contact keeps changing
         local p = void and C.VoidPower or C.FlingPower
         local pos = tRoot.Position + tRoot.AssemblyLinearVelocity * 0.08 + Vector3.new(0, (math.random() - 0.5) * 2, 0)
         local dir = Vector3.new(math.random() - 0.5, 0, math.random() - 0.5)
@@ -2993,7 +2759,6 @@ local function attack(target, void, token)
     return "cancel"
 end
 
--- Runs body(token, origin) as the one active job, then puts us back where we started.
 local function startJob(name, body)
     if flingBusy then
         notify(name, "Something is already running - press Stop first", "warn")
@@ -3012,7 +2777,7 @@ local function startJob(name, body)
         if not ok then notify(name, tostring(err), "error") end
         goHome(origin)
         flingBusy = false
-        -- a looping job that ended (error, cancelled, nobody left) must not leave its switch on
+
         for _, key in ipairs({ "VoidSpam", "FlingLoop" }) do
             if C[key] and TOG[key] then
                 C[key] = false
@@ -3039,8 +2804,6 @@ local RESULT_TEXT = {
     me = "you have no character", cancel = "stopped",
 }
 
--- fling ------------------------------------------------------------------
-
 flg:Button({ Text = "Fling Selected Player", Callback = function()
     local target = selectedTarget("Fling")
     if not target then return end
@@ -3050,8 +2813,6 @@ flg:Button({ Text = "Fling Selected Player", Callback = function()
     end)
 end })
 
--- everyone we are allowed to hit, ordered by the current options. `mode` is one of
--- Selected / All / Nearest / Blacklist Only (Nearest keeps just the closest one).
 local function targetList(mode)
     local list = {}
     if mode == "Selected" then
@@ -3080,7 +2841,6 @@ local function targetList(mode)
     return list
 end
 
--- one pass over everybody; returns launched, tried
 local function flingPass(token)
     local hit, tried = 0, 0
     for _, plr in ipairs(targetList("All")) do
@@ -3116,10 +2876,6 @@ slider(flg, "Loop Pause", "FlingLoopDelay", 0.1, 10, 1, { Decimals = 1, Suffix =
 
 flg:Button({ Text = "Stop", Callback = function() stopFling() end })
 
--- void spam ----------------------------------------------------------------
--- keeps sending players under the map. Each round it builds the target list again, so people who
--- respawn or join are picked up automatically; players already in the void are skipped.
-
 local function voidJob(token, origin)
     local kills = 0
     while flingToken == token and U.Running do
@@ -3129,7 +2885,7 @@ local function voidJob(token, origin)
                 notify("Void Spam", "Player left the server", "warn")
                 break
             end
-            task.wait(0.5)   -- nobody valid right now (dead / respawning): keep watching
+            task.wait(0.5)
         else
             for _, plr in ipairs(list) do
                 if flingToken ~= token or not U.Running then break end
@@ -3137,7 +2893,7 @@ local function voidJob(token, origin)
                 if root and root.Position.Y >= voidLine() then
                     local res = attack(plr, true, token)
                     if res == "cancel" then return end
-                    goHome(origin)   -- never wait around under the map
+                    goHome(origin)
                     if res == "done" then
                         kills += 1
                         if C.VoidNotify then
@@ -3167,8 +2923,6 @@ slider(vsp, "Delay Between Targets", "VoidGap", 0, 5, 0.3, { Decimals = 1, Suffi
 slider(vsp, "Delay Between Rounds", "VoidDelay", 0, 5, 0.5, { Decimals = 1, Suffix = " s" })
 toggle(vsp, "Notify Each Kill", "VoidNotify", false)
 
--- tuning -----------------------------------------------------------------
-
 slider(flgTune, "Fling Power", "FlingPower", 10000, 1000000, 100000)
 slider(flgTune, "Fling Time Per Player", "FlingTime", 1, 15, 5, { Decimals = 1, Suffix = " s" })
 slider(flgTune, "Void Power", "VoidPower", 10000, 1000000, 100000)
@@ -3178,17 +2932,8 @@ slider(flgTune, "Downward Force", "VoidDrop", 0, 2, 1, { Decimals = 1, Suffix = 
 slider(flgTune, "Sideways Force", "VoidSide", 0, 2, 1, { Decimals = 1, Suffix = "x" })
 toggle(flgTune, "Camera Follows Target", "FlingCamera", true)
 toggle(flgTune, "Skip Teammates", "FlingSkipTeam", false)
-end   -- fling
+end
 
-----------------------------------------------------------------------
--- tab: Avatar (become a copy of another player)
-----------------------------------------------------------------------
-
--- Copies what a player WEARS (accessories, shirt, pants, graphic tee, body colours, character
--- meshes, face, head mesh, limb colours) onto your own character. It only changes your own client:
--- other players keep seeing your real avatar. The source can be someone in the server (their live
--- look, whatever the game gave them) or any Roblox user by name / id (their catalog avatar, built
--- with CreateHumanoidModelFromDescription). Your own look is saved first so "Restore" is exact.
 do
 local avatarTab = win:Tab("Avatar")
 local avPlayer = avatarTab:Section("Copy Player")
@@ -3197,9 +2942,6 @@ local avUser = avatarTab:Section("Copy By Username", "right")
 local APPEAR = { Accessory = true, Shirt = true, Pants = true, ShirtGraphic = true, BodyColors = true, CharacterMesh = true }
 local JUNK_CLASSES = { "Script", "LocalScript", "ModuleScript", "Sound", "ParticleEmitter", "BillboardGui", "SurfaceGui" }
 
--- Every joint / constraint inside a clone is removed. A cloned Weld keeps pointing at the ORIGINAL
--- part (e.g. the other player's Head), which welds your character to theirs: you cannot move and
--- you get dragged around whenever they walk. Accessories are re-welded by hand (attachAccessory).
 local function tidy(inst)
     local doomed = {}
     for _, d in ipairs(inst:GetDescendants()) do
@@ -3248,9 +2990,6 @@ local function findByPath(char, path)
     return cur
 end
 
--- everything that makes a character look like itself, as unparented clones. Games hide things:
--- The Strongest Battlegrounds keeps hair and glasses inside a hidden FakeHead part, so the whole
--- character is searched, not just its direct children.
 local function takeSnapshot(char)
     local snap = { items = {}, decor = {}, colors = {} }
     for _, d in ipairs(char:GetDescendants()) do
@@ -3259,7 +2998,7 @@ local function takeSnapshot(char)
             if c then table.insert(snap.items, { inst = c, host = pathOf(d, char) }) end
         elseif DECOR[d.ClassName] and d.Parent:IsA("BasePart") and not insideAccessory(d, char) then
             local c = safeClone(d)
-            if c then table.insert(snap.decor, { path = pathOf(d, char), inst = c }) end   -- path = the part that carries it
+            if c then table.insert(snap.decor, { path = pathOf(d, char), inst = c }) end
         elseif d:IsA("BasePart") and not insideAccessory(d, char) then
             snap.colors[(pathOf(d, char) ~= "" and (pathOf(d, char) .. "/") or "") .. d.Name] = d.Color
         end
@@ -3267,8 +3006,6 @@ local function takeSnapshot(char)
     return snap
 end
 
--- Humanoid:AddAccessory does not weld anything on the client, so the handle is welded by hand to the
--- attachment with the same name (on the part it sat on, else on the head, else anywhere on the character)
 local function attachAccessory(acc, host, char)
     local handle = acc:FindFirstChild("Handle")
     local hAtt = handle and handle:FindFirstChildOfClass("Attachment")
@@ -3296,7 +3033,7 @@ local function applySnapshot(snap)
     local char = lp.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not (char and hum) then return false end
-    -- collect first, destroy after: Destroy() also un-parents every descendant, which would break the walk
+
     local doomed = {}
     for _, d in ipairs(char:GetDescendants()) do
         if (APPEAR[d.ClassName] and not insideAccessory(d, char))
@@ -3308,7 +3045,7 @@ local function applySnapshot(snap)
     for _, e in ipairs(snap.items) do
         local n = e.inst:Clone()
         local host = e.host ~= "" and findByPath(char, e.host) or nil
-        n.Parent = (host and host:IsA("BasePart")) and host or char   -- same spot it had on the source
+        n.Parent = (host and host:IsA("BasePart")) and host or char
         if n:IsA("Accessory") then attachAccessory(n, host, char) end
     end
     for _, e in ipairs(snap.decor) do
@@ -3322,8 +3059,8 @@ local function applySnapshot(snap)
     return true
 end
 
-local mine       -- snapshot of your own look, taken right before the first copy
-local worn       -- snapshot of the look you are currently wearing (nil = your own)
+local mine
+local worn
 local wornName
 
 local function wear(snap, label)
@@ -3343,14 +3080,13 @@ local function restore()
 end
 onUnload(function() if worn and mine then pcall(applySnapshot, mine) end end)
 
--- keep the copied look after a respawn (the server hands you a fresh character each time)
 connect(lp.CharacterAdded, function(char)
     local keep, snap, label = C.AvatarKeep, worn, wornName
     mine = nil
     if not (keep and snap) then worn, wornName = nil, nil return end
     task.spawn(function()
         char:WaitForChild("Humanoid", 10)
-        task.wait(2)                          -- let the game finish dressing the new character
+        task.wait(2)
         if lp.Character ~= char or not U.Running then return end
         mine = takeSnapshot(char)
         applySnapshot(snap)
@@ -3400,11 +3136,7 @@ avUser:Button({ Text = "Copy By Username", Callback = function()
     end)
 end })
 avUser:Button({ Text = "Restore My Avatar", Callback = restore })
-end   -- avatar tab
-
-----------------------------------------------------------------------
--- tab: Misc
-----------------------------------------------------------------------
+end
 
 local miscTab = win:Tab("Misc")
 local perf = miscTab:Section("Performance")
@@ -3444,21 +3176,12 @@ tools:Button({ Text = "Copy Game Info", Callback = function()
     end
 end })
 
-----------------------------------------------------------------------
--- Misc: universal tools (clean visuals, camera, waypoints, stats HUD - work in any game)
-----------------------------------------------------------------------
-
-;(function()   -- own function: the main chunk is out of local registers
-local uniTab = miscTab   -- these sections live on the Misc tab
+;(function()
+local uniTab = miscTab
 local cleanSec = uniTab:Section("Clean Visuals")
 local camSec = uniTab:Section("Camera", "right")
 local wpSec = uniTab:Section("Waypoints")
 local hudSec = uniTab:Section("Stats HUD", "right")
-
--- clean visuals -------------------------------------------------------------
--- Everything we touch is remembered (weak tables) and put back when the switch goes off.
--- Particles are also made fully transparent, because games often :Emit() them while Enabled is
--- false, which would otherwise still draw.
 
 local EFFECT_CLASSES = {
     BlurEffect = true, DepthOfFieldEffect = true, BloomEffect = true,
@@ -3551,7 +3274,7 @@ toggle(cleanSec, "Remove Particles & Trails", "CleanParticles", false, function(
             if not (C.CleanParticles and U.Running) then return end
             if isVfx(d) then hideVfx(d) end
             n += 1
-            if n % 3000 == 0 then task.wait() end   -- big maps: do not freeze a frame
+            if n % 3000 == 0 then task.wait() end
         end
     end)
 end)
@@ -3572,7 +3295,7 @@ renderLast(function(dt)
     cleanAt += dt
     if cleanAt < 0.3 then return end
     cleanAt = 0
-    -- games switch their own effects back on; keep them off
+
     if C.CleanEffects then applyEffects() end
     if C.CleanFog then applyFog() end
     if C.CleanParticles then
@@ -3581,10 +3304,6 @@ renderLast(function(dt)
         end
     end
 end)
-
--- freecam ---------------------------------------------------------------------
--- The camera detaches from your character and flies freely. Movement keys are swallowed so the
--- character stays put; hold right mouse to look around.
 
 local ContextActionService = game:GetService("ContextActionService")
 local FC_KEYS = {
@@ -3647,8 +3366,6 @@ renderLast(function(dt)
     c.CFrame = CFrame.new(fc.pos) * rot
 end)
 
--- unlimited zoom -----------------------------------------------------------------
-
 local zoomOrig
 toggle(camSec, "Unlimited Zoom", "ZoomUnlock", false, function(v)
     if v and not zoomOrig then
@@ -3668,10 +3385,8 @@ renderLast(function()
     lp.CameraMinZoomDistance = 0
 end)
 
--- waypoints (saved per game when the executor can write files) ------------------------------
-
 local WP_FILE = "TerkanWaypoints_" .. tostring(game.PlaceId) .. ".json"
-local waypoints = {}   -- name -> the 12 components of a CFrame
+local waypoints = {}
 if readfile and isfile then
     pcall(function()
         if isfile(WP_FILE) then waypoints = HttpService:JSONDecode(readfile(WP_FILE)) end
@@ -3718,8 +3433,6 @@ wpSec:Button({ Text = "Delete Waypoint", Callback = function()
     saveWaypoints()
     wpDD:SetOptions(wpNames())
 end })
-
--- stats HUD ------------------------------------------------------------------------
 
 local HUD_CORNERS = {
     ["Top Left"] = { Vector2.new(0, 0), UDim2.new(0, 8, 0, 8) },
@@ -3781,24 +3494,15 @@ connect(RunService.RenderStepped, function(dt)
     hudLbl.AnchorPoint, hudLbl.Position = corner[1], corner[2]
     hudLbl.Text = ("FPS %d  |  Ping %s ms  |  Players %d/%d"):format(fps, ping, #Players:GetPlayers(), Players.MaxPlayers)
 end)
-end)()   -- universal
+end)()
 
-----------------------------------------------------------------------
--- Misc: CFrame movement, telekinesis, chat spy
-----------------------------------------------------------------------
-
-;(function()   -- own function: the main chunk is out of local registers
-local cfSec = moveTab:Section("CFrame Speed")   -- these two live on the Movement tab, the rest of this block on Misc
+;(function()
+local cfSec = moveTab:Section("CFrame Speed")
 local cfFlySec = moveTab:Section("CFrame Fly & Dash", "right")
 
 local function keyDown(key)
     return not UserInputService:GetFocusedTextBox() and UserInputService:IsKeyDown(key)
 end
-
--- CFrame movement -----------------------------------------------------------------------------
--- Moves the character by editing its CFrame instead of WalkSpeed / velocity, so games that watch
--- WalkSpeed see nothing unusual. Every move is checked against walls first (Stop At Walls) because a
--- CFrame step, unlike physics, would otherwise pass straight through thin geometry.
 
 toggle(cfSec, "CFrame Speed", "CfSpeed", false)
 slider(cfSec, "Extra Speed", "CfSpeedValue", 0, 300, 30, { Suffix = " st/s" })
@@ -3815,7 +3519,7 @@ slider(cfFlySec, "Fly Speed", "CfFlySpeed", 5, 500, 60, { Suffix = " st/s" })
 slider(cfFlySec, "Vertical Multiplier", "CfFlyVert", 0.2, 3, 1, { Decimals = 1, Suffix = "x" })
 toggle(cfFlySec, "Fly Toward Camera Pitch", "CfFlyPitch", true)
 toggle(cfFlySec, "Face Fly Direction", "CfFlyFace", false)
-local doDash   -- defined below, once the dash state exists; the key calls it through this upvalue
+local doDash
 keybind(cfFlySec, "Dash Key", "CfDashKey", nil, function() if doDash then doDash() end end)
 slider(cfFlySec, "Dash Distance", "CfDashDist", 5, 200, 40, { Suffix = " st" })
 slider(cfFlySec, "Dash Time", "CfDashTime", 0.05, 1, 0.15, { Decimals = 2, Suffix = " s" })
@@ -3870,11 +3574,11 @@ renderLast(function(dt)
             if flyPos then flyPos += move end
         end
         local v = root.AssemblyLinearVelocity
-        root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)   -- do not fall while dashing
+        root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
     end
 
     if C.CfFly then
-        -- our own authoritative position: physics would otherwise sink us a little every frame
+
         if flyRoot ~= root or not flyPos or (root.Position - flyPos).Magnitude > 12 then
             flyPos, flyRoot, flyVel = root.Position, root, Vector3.zero
         end
@@ -3925,12 +3629,6 @@ renderLast(function(dt)
     end
 end)
 
--- telekinesis --------------------------------------------------------------------------------
--- Roblox lets the client that is closest to a loose (unanchored) part simulate it, and a part you
--- simulate can be moved freely - the server and other players then see it move. "Claim Physics" widens
--- your simulation radius so far-away parts count as yours too. Anchored parts and characters can
--- never be grabbed, so this only does something in games with loose objects.
-
 local tkSec = miscTab:Section("Telekinesis (Loose Parts)")
 local tkTune = miscTab:Section("Telekinesis Tuning", "right")
 
@@ -3971,7 +3669,7 @@ local function isGrabbable(part)
     if not (part and part:IsA("BasePart")) or part.Anchored then return false end
     if part.Size.Magnitude > C.TkMaxSize then return false end
     local model = part:FindFirstAncestorOfClass("Model")
-    while model do   -- never anything that belongs to a player or NPC
+    while model do
         if model:FindFirstChildOfClass("Humanoid") then return false end
         model = model:FindFirstAncestorOfClass("Model")
     end
@@ -4107,7 +3805,7 @@ connect(RunService.Heartbeat, function()
                 table.remove(orbitParts, i)
             else
                 local a = t + (i / n) * math.pi * 2
-                local ring = (i - 1) % 3   -- three rings on top of each other make a funnel
+                local ring = (i - 1) % 3
                 local target = root.Position + Vector3.new(math.cos(a) * C.TkOrbitRadius, C.TkOrbitHeight + ring * 3, math.sin(a) * C.TkOrbitRadius)
                 local v = (target - part.Position) * C.TkPull
                 if v.Magnitude > C.TkMaxSpeed then v = v.Unit * C.TkMaxSpeed end
@@ -4117,29 +3815,21 @@ connect(RunService.Heartbeat, function()
     end
 end)
 
--- chat spy ------------------------------------------------------------------------------------
--- Logs every chat message this client receives, tagged public / whisper / team, in its own window.
--- It can only show what the server actually sends to you: with the newer TextChatService, whispers
--- between other people are never delivered to your client, so they cannot be seen by any script.
-
 local chatSec = miscTab:Section("Chat Spy")
 local chatOpt = miscTab:Section("Chat Spy Options", "right")
 
 local TextChatService = game:GetService("TextChatService")
 local chatLog, chatLabels, recentChat = {}, {}, {}
 local chatGui, chatFrame, chatList, chatPos
-local chatDrag   -- { start = Vector3, from = UDim2 } while the title bar is held
+local chatDrag
 
--- The window borrows its look from the menu (sharp corners, 2px accent border, top bar with a divider,
--- RobotoMono). Its colours are read from the live menu a couple of times a second, so switching the
--- theme in Settings switches this window too.
 local TEXT_COLOR, FAINT_HEX = Color3.fromRGB(232, 226, 227), "#685a5e"
 local TEAM_COLOR = Color3.fromRGB(110, 220, 140)
 local chatColors = {
     Accent = Color3.fromRGB(255, 32, 48), Bg = Color3.fromRGB(11, 4, 6),
     BgTop = Color3.fromRGB(19, 5, 8), Border = Color3.fromRGB(96, 14, 24),
 }
-local chatStroke, chatTop, chatTitle, chatLine   -- window parts that follow the theme
+local chatStroke, chatTop, chatTitle, chatLine
 local KIND_TAG = { public = "", private = "[PM] ", team = "[TEAM] " }
 
 local function monoFont(inst, weight)
@@ -4272,7 +3962,7 @@ local function buildChat()
     monoFont(hint)
     hint.Parent = chatTop
 
-    chatLine = Instance.new("Frame")   -- divider under the top bar, like the menu's
+    chatLine = Instance.new("Frame")
     chatLine.BackgroundColor3 = chatColors.Border
     chatLine.BackgroundTransparency = 0.35
     chatLine.BorderSizePixel = 0
@@ -4320,7 +4010,7 @@ end)
 local function logChat(kind, name, text)
     if not (C.ChatSpy and U.Running) then return end
     if C.ChatPrivateOnly and kind == "public" then return end
-    -- the same message can arrive through more than one route
+
     local key, now = name .. "\0" .. text, os.clock()
     if recentChat[key] and now - recentChat[key] < 1 then return end
     if next(recentChat) and math.random() < 0.05 then
@@ -4363,8 +4053,6 @@ slider(chatOpt, "Window Height", "ChatH", 100, 600, 220, { OnChange = function(v
     if chatFrame then chatFrame.Size = UDim2.fromOffset(C.ChatW, v) end
 end })
 
--- classic chat: Player.Chatted carries the raw text, so whispers and team chat can be recognised
--- by their command prefix. New chat: TextChatService knows which channel a message came from.
 local newChat = false
 pcall(function() newChat = TextChatService.ChatVersion == Enum.ChatVersion.TextChatService end)
 
@@ -4393,11 +4081,7 @@ pcall(function()
         logChat(kind, plr.Name, message.Text)
     end)
 end)
-end)()   -- cframe / telekinesis / chat spy
-
-----------------------------------------------------------------------
--- tab: Notifications
-----------------------------------------------------------------------
+end)()
 
 local notifTab = win:Tab("Notifications")
 local notifSec = notifTab:Section("Appearance")
@@ -4419,7 +4103,6 @@ notifSec:Button({ Text = "Test Warning", Callback = function()
     showToast("Warning", "This is how a warning looks", "warn")
 end })
 
--- one switch per kind of notification; anything switched off is simply never shown
 toggle(notifShow, "Feature On / Off", "Notif_toggle", false)
 toggle(notifShow, "Rage Status Bar", "RageStatus", true)
 toggle(notifShow, "Config Events", "Notif_config", true)
@@ -4431,7 +4114,6 @@ toggle(notifShow, "Player Joined / Left", "Notif_players", false)
 toggle(notifShow, "Startup Message", "Notif_startup", true)
 toggle(notifShow, "Other", "Notif_misc", true)
 
--- target events: watch whoever the rage / aimbot / silent aim is currently on
 local watchedPlr
 local watchAccum = 0
 local lockNotedAt = {}
@@ -4445,7 +4127,6 @@ connect(RunService.Heartbeat, function(dt)
     local plr = t and t.plr
     if plr == watchedPlr then return end
 
-    -- the previous target is gone: was that because they died?
     if watchedPlr and C.Notif_target_dead then
         local char = watchedPlr.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -4463,17 +4144,12 @@ end)
 connect(Players.PlayerAdded, function(plr) notify("Player joined", plr.DisplayName .. " joined the server") end)
 connect(Players.PlayerRemoving, function(plr) notify("Player left", plr.DisplayName .. " left the server") end)
 
-----------------------------------------------------------------------
--- tab: Settings
-----------------------------------------------------------------------
-
 local settingsTab = win:Tab("Settings")
 local cfgSec = settingsTab:Section("Configs")
 local themeSec = settingsTab:Section("Theme", "right")
 local menuSec = settingsTab:Section("Menu", "right")
 local bindSec = settingsTab:Section("Binds", "right")
 
--- configs
 local cfgName = cfgSec:TextBox({ Text = "Config Name", Placeholder = "my config", Flag = "_cfgName", NoSave = true,
     Callback = function(v) C._cfgName = v end })
 local cfgList = cfgSec:Dropdown({ Text = "Config List", Options = win:ListConfigs(), Flag = "_cfgList", NoSave = true,
@@ -4500,7 +4176,7 @@ end })
 cfgSec:Button({ Text = "Load Config", Callback = function()
     local name = C._cfgList
     if not name then notify("Config", "Select a config in the list first", "warn") return end
-    U.LoadingConfig = true                              -- setting many switches at once must not toast each one
+    U.LoadingConfig = true
     task.delay(0.8, function() U.LoadingConfig = false end)
     local ok, res = win:LoadConfig(name)
     if ok then notify("Config", ("Loaded '%s' (%d settings)"):format(name, res), "success")
@@ -4529,7 +4205,6 @@ cfgSec:Button({ Text = "Clear Autoload", Callback = function()
     refreshConfigs()
 end })
 
--- theme
 local accentPicker
 local DEFAULT_ACCENT = Color3.fromRGB(255, 32, 48)
 local function sameColor(a, b)
@@ -4549,7 +4224,6 @@ accentPicker = color(themeSec, "Accent Color", "AccentColor", DEFAULT_ACCENT, fu
     if sameColor(c, DEFAULT_ACCENT) then win:SetTheme("Terkan Red") else win:SetAccent(c) end
 end)
 
--- menu
 keybind(menuSec, "Menu Key", "MenuKey", Enum.KeyCode.RightShift, nil, function(key)
     win:SetToggleKey(key or Enum.KeyCode.RightShift)
 end)
@@ -4558,12 +4232,11 @@ slider(menuSec, "Blur Strength", "BlurSize", 4, 40, 16, { OnChange = function(v)
 slider(menuSec, "UI Scale", "UiScale", 0.6, 1.4, 1, { Decimals = 2, OnChange = function(v) win:SetScale(v) end })
 menuSec:Button({ Text = "Unload Menu", Callback = function() U.Unload() end })
 
--- quick toggle binds
 local function flip(key) return function() if TOG[key] then TOG[key]:Set(not TOG[key]:Get()) end end end
 keybind(bindSec, "Soft Aim", "BindAim", nil, flip("AimEnabled"))
 if TOG.SilentEnabled then keybind(bindSec, "Silent Aim", "BindSilent", nil, flip("SilentEnabled")) end
 keybind(bindSec, "Triggerbot", "BindTrig", nil, flip("TrigEnabled"))
-keybind(bindSec, "Rage Bot", "BindRage", Enum.KeyCode.End, flip("RageEnabled"))   -- End = on/off switch that never needs the menu
+keybind(bindSec, "Rage Bot", "BindRage", Enum.KeyCode.End, flip("RageEnabled"))
 keybind(bindSec, "ESP", "BindEsp", nil, flip("ESPEnabled"))
 keybind(bindSec, "Fly", "BindFly", Enum.KeyCode.F, flip("FlyEnabled"))
 keybind(bindSec, "Follow Player", "BindFollow", nil, flip("FollowEnabled"))
@@ -4586,10 +4259,6 @@ keybind(bindSec, "Desync", "BindDesync", nil, flip("Desync"))
 keybind(bindSec, "Noclip", "BindNoclip", nil, flip("Noclip"))
 keybind(bindSec, "Speed", "BindSpeed", nil, flip("SpeedEnabled"))
 
-----------------------------------------------------------------------
--- startup / unload
-----------------------------------------------------------------------
-
 function U.Unload()
     if not U.Running then return end
     U.Running = false
@@ -4607,7 +4276,7 @@ task.defer(function()
     else notify("Terkan", "Universal loaded - " .. tostring(win.ToggleKey.Name) .. " toggles the menu") end
     task.delay(0.8, function()
         U.LoadingConfig = false
-        U.Ready = true          -- from here on, switching a feature may notify
+        U.Ready = true
     end)
 end)
 
