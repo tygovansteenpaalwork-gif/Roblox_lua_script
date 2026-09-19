@@ -591,16 +591,22 @@ local function cursorOverMenu()
 
     local m = UserInputService:GetMouseLocation()
     local p, s = win.Main.AbsolutePosition, win.Main.AbsoluteSize
+    local top = game:GetService('GuiService'):GetGuiInset().Y
 
-    return m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y and m.Y <= p.Y + s.Y
+    return m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y + top and m.Y <= p.Y + s.Y + top
 end
-local function virtualClick()
-    if win.Main.Visible then
+local function virtualClick(at)
+    if win.Main.Visible and (not at or cursorOverMenu()) then
         return false
     end
 
     local vp = cam().ViewportSize
     local x, y = vp.X / 2, vp.Y / 2
+
+    if at then
+        x, y = at.X, at.Y
+    end
+
     local vim = game:GetService('VirtualInputManager')
 
     vim:SendMouseButtonEvent(x, y, 0, true, game, 1)
@@ -610,15 +616,15 @@ local function virtualClick()
 
     return true
 end
-local function fireWeapon(method)
+local function fireWeapon(method, at)
     local char = lp.Character
     local tool = char and char:FindFirstChildOfClass('Tool')
     local canClick = hasFn('mouse1click') and not cursorOverMenu()
 
     if method == 'Auto' then
-        local ok, sent = pcall(virtualClick)
+        local ok, sent = pcall(virtualClick, at)
 
-        if not (ok and sent) and not win.Main.Visible then
+        if not (ok and sent) and (not win.Main.Visible or (at ~= nil and not cursorOverMenu())) then
             if tool then
                 tool:Activate()
             elseif canClick then
@@ -626,7 +632,7 @@ local function fireWeapon(method)
             end
         end
     elseif method == 'Virtual Click' then
-        pcall(virtualClick)
+        pcall(virtualClick, at)
     elseif method == 'Mouse Click' and canClick then
         pcall(mouse1click)
     elseif tool then
@@ -1027,7 +1033,7 @@ dropdown(trig, 'Target Part', 'TrigPart', {
     'Head',
     'Torso',
 }, 'Any')
-dropdown(trig, 'Fire Method', 'TrigMethod', FIRE_METHODS, 'Tool Activate')
+dropdown(trig, 'Fire Method', 'TrigMethod', FIRE_METHODS, 'Auto')
 toggle(trig, 'Team Check', 'TrigTeam', true)
 toggle(trig, 'Dead Check', 'TrigDead', true)
 slider(trigTune, 'Reaction Time', 'TrigReaction', 0, 500, 60, {
@@ -1043,9 +1049,11 @@ toggle(trigTune, 'Randomize Timing', 'TrigRandom', true)
 
 local trigSince, trigWait, lastShot = nil, 0, 0
 
+toggle(trigTune, 'Include NPCs / Dummies', 'TrigNPC', true)
+
 local function underCrosshair()
     if cursorOverMenu() then
-        return
+        return nil, 'cursor is on the menu'
     end
 
     local pos = UserInputService:GetMouseLocation()
@@ -1058,32 +1066,42 @@ local function underCrosshair()
     local res = workspace:Raycast(ray.Origin, ray.Direction * C.TrigDist, rayParams)
 
     if not res then
-        return
+        return nil, 'nothing under the cursor'
     end
 
     local model = res.Instance:FindFirstAncestorOfClass('Model')
     local plr = model and Players:GetPlayerFromCharacter(model)
+    local hum
 
-    if not plr or plr == lp then
-        return
+    if plr then
+        if plr == lp then
+            return nil, 'that is you'
+        end
+        if C.TrigTeam and sameTeam(plr) then
+            return nil, 'teammate'
+        end
+
+        local _, h = charOf(plr, not C.TrigDead)
+
+        hum = h
+    elseif C.TrigNPC and model and model ~= lp.Character then
+        local h = model:FindFirstChildOfClass('Humanoid')
+
+        if h and (not C.TrigDead or h.Health > 0) then
+            hum = h
+        end
     end
-    if C.TrigTeam and sameTeam(plr) then
-        return
-    end
-
-    local _, hum = charOf(plr, not C.TrigDead)
-
     if not hum then
-        return
+        return nil, 'not a target: ' .. (model and model.Name or res.Instance.Name)
     end
     if C.TrigPart == 'Head' and res.Instance.Name ~= 'Head' then
-        return
+        return nil, 'not the head: ' .. res.Instance.Name
     end
     if C.TrigPart == 'Torso' and not (res.Instance.Name:find('Torso') or res.Instance.Name == 'HumanoidRootPart') then
-        return
+        return nil, 'not the torso: ' .. res.Instance.Name
     end
 
-    return plr
+    return plr and plr.DisplayName or model.Name
 end
 
 connect(RunService.RenderStepped, function()
@@ -1094,10 +1112,16 @@ connect(RunService.RenderStepped, function()
     end
     if C.TrigMode == 'Hold Key' and not (BIND.TrigKey and BIND.TrigKey:IsDown()) then
         trigSince = nil
+        U.TrigTarget, U.TrigWhy = nil, 'hold the trigger key'
 
         return
     end
-    if not underCrosshair() then
+
+    local target, why = underCrosshair()
+
+    U.TrigTarget, U.TrigWhy = target, why
+
+    if not target then
         trigSince = nil
 
         return
@@ -1119,8 +1143,45 @@ connect(RunService.RenderStepped, function()
 
     lastShot = now
 
-    fireWeapon(C.TrigMethod)
+    fireWeapon(C.TrigMethod, UserInputService:GetMouseLocation())
 end)
+
+do
+    local trigText = Instance.new('TextLabel')
+
+    trigText.Name = 'TriggerStatus'
+    trigText.AnchorPoint = Vector2.new(0.5, 0)
+    trigText.BackgroundTransparency = 1
+    trigText.Size = UDim2.fromOffset(420, 20)
+    trigText.Font = Enum.Font.GothamBold
+    trigText.TextSize = 14
+    trigText.TextStrokeTransparency = 0.35
+    trigText.TextStrokeColor3 = Color3.new(0, 0, 0)
+    trigText.Visible = false
+    trigText.Parent = overlay
+
+    renderLast(function()
+        local on = C.TrigEnabled and U.Running
+
+        trigText.Visible = on and true or false
+
+        if not on then
+            return
+        end
+
+        local c = viewportCenter()
+
+        trigText.Position = UDim2.fromOffset(c.X, c.Y + 36)
+
+        if U.TrigTarget then
+            trigText.Text = 'TRIGGER  \u{b7}  ' .. U.TrigTarget
+            trigText.TextColor3 = Color3.fromRGB(255, 90, 90)
+        else
+            trigText.Text = 'TRIGGER  \u{b7}  ' .. tostring(U.TrigWhy or 'nothing under the cursor')
+            trigText.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end
+    end)
+end
 
 local rageTarget = nil
 
