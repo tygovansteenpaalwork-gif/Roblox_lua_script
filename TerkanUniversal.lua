@@ -3746,7 +3746,6 @@ tkSec:Button({ Text = "Launch Nearby Parts", Callback = function()
     end
     notify("Telekinesis", n .. " parts launched", n > 0 and "success" or "warn")
 end })
-toggle(tkSec, "Orbit Parts (Tornado)", "TkOrbit", false, function(v) if v then ensureClaim() end end)
 toggle(tkSec, "Grab Nearby Parts Too", "TkCluster", false)
 toggle(tkSec, "Throw On Release", "TkThrow", true)
 
@@ -3759,16 +3758,65 @@ slider(tkTune, "Scroll Step", "TkWheel", 1, 30, 5, { Suffix = " st" })
 slider(tkTune, "Search Radius", "TkRadius", 5, 150, 30, { Suffix = " st" })
 slider(tkTune, "Max Parts", "TkMax", 1, 150, 25)
 slider(tkTune, "Max Part Size", "TkMaxSize", 5, 500, 60, { Suffix = " st" })
-slider(tkTune, "Orbit Radius", "TkOrbitRadius", 5, 80, 14, { Suffix = " st" })
-slider(tkTune, "Orbit Height", "TkOrbitHeight", -5, 30, 2, { Suffix = " st" })
-slider(tkTune, "Orbit Speed", "TkOrbitSpeed", 10, 720, 180, { Suffix = "°/s" })
+local fireFormation
+local fmSec = miscTab:Section("Telekinesis Formation")
+local fmTune = miscTab:Section("Formation Tuning", "right")
+local formParts, formSet, formScanAt, fireUntil, formWarned = {}, {}, 0, 0, false
+local TAU, GOLDEN = math.pi * 2, math.pi * (3 - math.sqrt(5))
+
+toggle(fmSec, "Formation", "TkOrbit", false, function(v)
+    if v then
+        ensureClaim()
+        formWarned = false
+    else
+        table.clear(formParts)
+        table.clear(formSet)
+    end
+end)
+dropdown(fmSec, "Shape", "TkShape", { "Ring", "Tornado", "Sphere" }, "Ring")
+dropdown(fmSec, "Around", "TkAround", { "Cursor", "Me" }, "Cursor")
+dropdown(fmSec, "Ring Plane", "TkPlane", { "Facing Camera", "Flat" }, "Facing Camera")
+toggle(fmSec, "Reverse Direction", "TkReverse", false)
+keybind(fmSec, "Fire Key", "TkFireKey", nil, function() if fireFormation then fireFormation() end end)
+slider(fmSec, "Fire Pause", "TkFirePause", 0.2, 3, 1, { Decimals = 1, Suffix = " s" })
+
+slider(fmTune, "Circle Size", "TkFormRadius", 1, 150, 12, { Suffix = " st" })
+slider(fmTune, "Height Offset", "TkFormHeight", -30, 80, 0, { Suffix = " st" })
+slider(fmTune, "Layers", "TkLayers", 1, 12, 1)
+slider(fmTune, "Layer Gap", "TkLayerGap", 0, 20, 3, { Decimals = 1, Suffix = " st" })
+slider(fmTune, "Funnel Taper", "TkTaper", -1.5, 3, 0.6, { Decimals = 1, Suffix = "x" })
+slider(fmTune, "Spin Speed", "TkFormSpeed", 0, 1440, 180, { Suffix = "°/s" })
+slider(fmTune, "Tilt", "TkTilt", 0, 90, 0, { Suffix = "°" })
+slider(fmTune, "Wobble", "TkWobble", 0, 15, 0, { Decimals = 1, Suffix = " st" })
+slider(fmTune, "Pulse Size", "TkPulse", 0, 30, 0, { Decimals = 1, Suffix = " st" })
+slider(fmTune, "Pulse Speed", "TkPulseSpeed", 0.1, 5, 1, { Decimals = 1, Suffix = " Hz" })
+local distSlider = slider(fmTune, "Cursor Distance", "TkFormDist", 5, 500, 40, { Suffix = " st" })
+slider(fmTune, "Rescan Time", "TkRescan", 0.1, 3, 0.5, { Decimals = 1, Suffix = " s" })
+
+fireFormation = function()
+    if not C.TkOrbit or #formParts == 0 then return end
+    local m = UserInputService:GetMouseLocation()
+    local ray = cam():ViewportPointToRay(m.X, m.Y)
+    rayParams.FilterDescendantsInstances = { lp.Character }
+    local res = workspace:Raycast(ray.Origin, ray.Direction * 1000, rayParams)
+    local target = res and res.Position or (ray.Origin + ray.Direction * 300)
+    for _, part in ipairs(formParts) do
+        if part.Parent then
+            local d = target - part.Position
+            if d.Magnitude > 0.1 then part.AssemblyLinearVelocity = d.Unit * C.TkThrowPower end
+        end
+    end
+    fireUntil = os.clock() + C.TkFirePause
+end
 
 connect(UserInputService.InputChanged, function(input)
-    if #held == 0 or input.UserInputType ~= Enum.UserInputType.MouseWheel then return end
-    holdDist = math.clamp(holdDist + input.Position.Z * C.TkWheel, 5, 500)
+    if input.UserInputType ~= Enum.UserInputType.MouseWheel then return end
+    if #held > 0 then
+        holdDist = math.clamp(holdDist + input.Position.Z * C.TkWheel, 5, 500)
+    elseif C.TkOrbit and C.TkAround == "Cursor" then
+        distSlider:Set(math.clamp(C.TkFormDist + input.Position.Z * C.TkWheel, 5, 500))
+    end
 end)
-
-local orbitParts, orbitScanAt = {}, 0
 connect(RunService.Heartbeat, function()
     if not U.Running then return end
 
@@ -3789,28 +3837,88 @@ connect(RunService.Heartbeat, function()
         end
     end
 
-    if C.TkOrbit then
-        local _, root = myHumanoid()
-        if not root then return end
-        local now = os.clock()
-        if now - orbitScanAt > 0.5 then
-            orbitScanAt = now
-            orbitParts = nearbyParts(root.Position, C.TkRadius, C.TkMax)
-        end
-        local n = #orbitParts
-        local t = now * math.rad(C.TkOrbitSpeed)
-        for i = n, 1, -1 do
-            local part = orbitParts[i]
+    if not C.TkOrbit then return end
+    local _, root = myHumanoid()
+    if not root then return end
+    local now = os.clock()
+
+    local heldPart = {}
+    for _, h in ipairs(held) do heldPart[h.part] = true end
+
+    if now - formScanAt > C.TkRescan then
+        formScanAt = now
+        for i = #formParts, 1, -1 do
+            local part = formParts[i]
             if not part.Parent or part.Anchored then
-                table.remove(orbitParts, i)
-            else
-                local a = t + (i / n) * math.pi * 2
-                local ring = (i - 1) % 3
-                local target = root.Position + Vector3.new(math.cos(a) * C.TkOrbitRadius, C.TkOrbitHeight + ring * 3, math.sin(a) * C.TkOrbitRadius)
-                local v = (target - part.Position) * C.TkPull
-                if v.Magnitude > C.TkMaxSpeed then v = v.Unit * C.TkMaxSpeed end
-                part.AssemblyLinearVelocity = v
+                formSet[part] = nil
+                table.remove(formParts, i)
             end
+        end
+        for _, part in ipairs(nearbyParts(root.Position, C.TkRadius, C.TkMax * 2)) do
+            if #formParts >= C.TkMax then break end
+            if not formSet[part] and not heldPart[part] then
+                formSet[part] = true
+                table.insert(formParts, part)
+            end
+        end
+        while #formParts > C.TkMax do formSet[table.remove(formParts)] = nil end
+        if #formParts == 0 and not formWarned then
+            formWarned = true
+            notify("Telekinesis", "No loose parts within " .. C.TkRadius .. " studs of you", "warn")
+        elseif #formParts > 0 then
+            formWarned = false
+        end
+    end
+
+    if now < fireUntil then return end
+    local n = #formParts
+    if n == 0 then return end
+
+    local shape = C.TkShape
+    local c = cam().CFrame
+    local center
+    if C.TkAround == "Cursor" then
+        local m = UserInputService:GetMouseLocation()
+        local ray = cam():ViewportPointToRay(m.X, m.Y)
+        center = ray.Origin + ray.Direction * C.TkFormDist
+    else
+        center = root.Position
+    end
+    center += Vector3.new(0, C.TkFormHeight, 0)
+
+    local upright = C.TkPlane == "Flat" or shape == "Tornado"
+    local basis = upright and CFrame.new() or CFrame.fromMatrix(Vector3.zero, c.RightVector, c.LookVector)
+    basis *= CFrame.Angles(math.rad(C.TkTilt), 0, 0)
+
+    local layers = 1
+    if shape == "Ring" then layers = C.TkLayers elseif shape == "Tornado" then layers = math.max(C.TkLayers, 3) end
+    layers = math.clamp(layers, 1, n)
+    local perLayer = math.ceil(n / layers)
+    local spin = math.rad(C.TkFormSpeed) * now * (C.TkReverse and -1 or 1)
+    local pulse = C.TkPulse * math.sin(now * C.TkPulseSpeed * TAU)
+
+    for i = 1, n do
+        local part = formParts[i]
+        if not heldPart[part] then
+            local offset
+            if shape == "Sphere" then
+                local yy = 1 - 2 * (i - 0.5) / n
+                local rr = math.sqrt(math.max(0, 1 - yy * yy))
+                local theta = GOLDEN * i + spin
+                offset = Vector3.new(math.cos(theta) * rr, yy, math.sin(theta) * rr) * math.max(C.TkFormRadius + pulse, 0.5)
+            else
+                local layer = math.floor((i - 1) / perLayer)
+                local idx = (i - 1) % perLayer
+                local count = math.min(perLayer, n - layer * perLayer)
+                local angle = spin + idx / count * TAU + layer * 0.9
+                local radius = math.max(C.TkFormRadius * (1 + C.TkTaper * layer / math.max(layers - 1, 1)) + pulse, 0.5)
+                local axis = layer * C.TkLayerGap + C.TkWobble * math.sin(now * 2 + idx * 0.7)
+                offset = Vector3.new(math.cos(angle) * radius, axis, math.sin(angle) * radius)
+            end
+            local v = (center + basis:VectorToWorldSpace(offset) - part.Position) * C.TkPull
+            if v.Magnitude > C.TkMaxSpeed then v = v.Unit * C.TkMaxSpeed end
+            part.AssemblyLinearVelocity = v
+            part.AssemblyAngularVelocity = Vector3.new(0, C.TkSpin, 0)
         end
     end
 end)
