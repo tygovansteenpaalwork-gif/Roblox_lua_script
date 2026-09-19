@@ -117,7 +117,7 @@ Anti-AFK, FPS-boost, server hoppen, een Infinite Yield-knop en universele hulpmi
 - **Freecam** – de camera maakt zich los van je karakter (WASD, `E`/`Space` omhoog, `Q`/`Ctrl` omlaag, `Shift` sneller, rechtermuisknop om rond te kijken). **Unlimited Zoom** haalt de zoomgrens weg.
 - **Waypoints** – sla posities op met een naam en teleporteer erheen. Ze worden per game bewaard als je executor bestanden kan schrijven.
 - **Stats HUD** – FPS, ping en aantal spelers in een hoek naar keuze.
-- **Telekinesis** – grijp losse (unanchored) onderdelen met een toets (standaard `G`), houd ze bij je muis, verander de afstand met het scrollwiel en gooi ze weg bij het loslaten. Met **Formation** laat je losse onderdelen een vaste vorm aannemen: een **ring**, een **tornado** of een **bol**, rond je muis (*Cursor*) of rond jezelf (*Me*). Een ring staat standaard als cirkel voor je scherm (*Facing Camera*) of plat als een schijf (*Flat*). Je regelt de grootte van de cirkel, de hoogte, het aantal lagen en de afstand ertussen, de vorm van de trechter (*Funnel Taper*), de draaisnelheid en -richting, de kanteling, deinen (*Wobble*) en in- en uitademen (*Pulse*), en met het scrollwiel de afstand tot je muis. De formatie pakt vanzelf nieuwe losse onderdelen in de buurt erbij, en met de **Fire Key** schiet je alle onderdelen naar je cursor. Daarnaast zijn er een lanceerknop, een cluster-modus bij het grijpen en schuiven voor kracht, spin, zoekstraal en aantal. *Claim Physics* vergroot je simulatieradius, zodat verre onderdelen ook van jou zijn. Bezit je de fysica van een onderdeel echt, dan stuurt je client de positie naar de server en zien anderen het ook bewegen. Het werkt alleen op losse onderdelen: vaste onderdelen, spelers en NPC's kun je niet grijpen.
+- **Telekinesis** – één schakelaar die losse (unanchored) onderdelen naar je toe trekt en in een patroon om je heen laat zweven: **Infinity** (een ∞ die voor je hangt), **Ring**, **Tornado**, **Sphere**, **Galaxy**, **DNA Helix** of **Wings**, of **Cycle** dat elke 8 seconden wisselt. Je regelt maar twee dingen: **Distance** (de minimale afstand tussen jou en de onderdelen) en **Range** (hoe ver hij zoekt, tot 1500 studs en daarna *Infinite*). Met de **Fire Key** (standaard `G`) schiet je alle onderdelen naar je cursor en de knop **Release All** laat ze los. Alleen onderdelen waarvan jij de fysica bezit reageren en worden door anderen gezien; de simulatieradius wordt automatisch vergroot en je krijgt een melding hoeveel onderdelen echt van jou zijn. Zet je het uit, dan krijgen alle onderdelen hun botsing terug en wordt de simulatieradius hersteld. Het werkt alleen op losse onderdelen: vaste onderdelen, spelers en NPC's kun je niet grijpen.
 - **Chat Spy** – een sleepbaar venster in de stijl van het menu (de kleuren volgen je thema) dat elk chatbericht toont dat je client ontvangt, gemarkeerd als gewoon, fluister of team. Je kunt de log kopiëren of wissen. Fluisterberichten tussen andere spelers worden bij de nieuwere TextChatService nooit naar jouw client gestuurd, dus die kan geen enkel script zien.
 
 <p align="center">
@@ -149,7 +149,7 @@ Tekstmeldingen boven het richtkruis met je eigen kleur (of thema of regenboog), 
 | Rage-vasthoudtoets | `V` |
 | Rage aan of uit | `End` |
 | Vliegen | `F` |
-| Telekinesis grijpen en loslaten | `G` |
+| Telekinesis: onderdelen naar je cursor schieten (Fire Key) | `G` |
 
 Elke toets is aan te passen in het menu. Met `Backspace` wis je een bind en met `Escape` annuleer je.
 
@@ -170,7 +170,7 @@ Elke toets is aan te passen in het menu. Met `Backspace` wis je een bind en met 
 - Games verschillen. Sommige negeren `mouse1click` en `Tool:Activate`, andere hebben een echte klik in het spel nodig, en sommige verplaatsen zelf de camera. Daarom is de vuurmethode van Rage en Trigger standaard **Auto** (een klik in het spel, met terugval). Probeer bij problemen de andere methodes en aim-types.
 - Met het menu open pauzeert Rage, zodat je hem altijd kunt uitzetten. De zijbalk met tabs scrolt als er meer tabs zijn dan er passen.
 - Alles wat op andere spelers werkt (Fling, Void Spam, Telekinesis) is alleen bedoeld voor privéservers en je eigen ervaringen.
-- Sommige onderdelen hangen af van je executor. Telekinesis gebruikt `sethiddenproperty` en `gethiddenproperty` voor *Claim Physics*, en Waypoints en Copy Log gebruiken `writefile`, `readfile` en `setclipboard`. Zonder die functies werkt het onderdeel beperkt of niet.
+- Sommige onderdelen hangen af van je executor. Telekinesis gebruikt `sethiddenproperty`, `gethiddenproperty` en `isnetworkowner` om je simulatieradius te vergroten en te zien welke onderdelen van jou zijn, en Waypoints en Copy Log gebruiken `writefile`, `readfile` en `setclipboard`. Zonder die functies werkt het onderdeel beperkt of niet.
 - Eigenschappen van je karakter uitlezen en vervalsen (een *property spoof*) kan alleen met `hookmetamethod`, `getrawmetatable` of `debug.getmetatable`. Op de executor waarmee dit is getest ontbreken die functies, dus dat is niet gebouwd.
 
 ---

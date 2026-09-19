@@ -83,7 +83,7 @@ local FEATURE_TOGGLES = {
     OrbitEnabled = true, Spectate = true, ClickTp = true, CursorEnabled = true, Fullbright = true,
     FovEnabled = true, FpsBoost = true, AntiAfk = true, VoidSpam = true, AntiRagdoll = true, FlingLoop = true, NoAnim = true, Freecam = true,
     CleanEffects = true, CleanFog = true, CleanParticles = true, ZoomUnlock = true, StatsHud = true,
-    CfSpeed = true, CfFly = true, TkEnabled = true, TkOrbit = true, ChatSpy = true,
+    CfSpeed = true, CfFly = true, TkEnabled = true, ChatSpy = true,
 }
 
 local function toggle(sec, text, key, default, onChange)
@@ -3629,299 +3629,282 @@ renderLast(function(dt)
     end
 end)
 
-local tkSec = miscTab:Section("Telekinesis (Loose Parts)")
-local tkTune = miscTab:Section("Telekinesis Tuning", "right")
+do
+local TK_MAX, TK_SIZE, TK_RESCAN, INF_RANGE, CYCLE_TIME = 250, 400, 0.75, 1600, 8
+local TAU, GOLDEN = math.pi * 2, math.pi * (3 - math.sqrt(5))
+local SHAPES = { "Ring", "Tornado", "Sphere", "Infinity", "Galaxy", "DNA Helix", "Wings", "Cycle" }
+local CYCLE = { "Infinity", "Ring", "Galaxy", "Sphere", "Tornado", "DNA Helix", "Wings" }
 
-local simOrig
-local function releaseClaim()
-    if not simOrig then return end
-    pcall(function() if simOrig.Max then lp.MaximumSimulationRadius = simOrig.Max end end)
-    if sethiddenproperty and simOrig.Sim then pcall(sethiddenproperty, lp, "SimulationRadius", simOrig.Sim) end
-    simOrig = nil
-end
-onUnload(releaseClaim)
+local tkSec = miscTab:Section("Telekinesis")
 
-toggle(tkSec, "Claim Physics", "TkClaim", false, function(v)
-    if v then
-        if not simOrig then
-            simOrig = {}
-            pcall(function() simOrig.Max = lp.MaximumSimulationRadius end)
-            if gethiddenproperty then pcall(function() simOrig.Sim = gethiddenproperty(lp, "SimulationRadius") end) end
+local parts, partSet, origCollide = {}, {}, {}
+local claimOrig, scanAt, scanCount, fireUntil = nil, 0, 0, 0
+
+local function setClaim(on)
+    if on then
+        if not claimOrig then
+            claimOrig = {}
+            pcall(function() claimOrig.Max = lp.MaximumSimulationRadius end)
+            if gethiddenproperty then pcall(function() claimOrig.Sim = gethiddenproperty(lp, "SimulationRadius") end) end
         end
-        if not sethiddenproperty then
-            notify("Telekinesis", "Your executor has no sethiddenproperty - only parts close to you will work", "warn")
-        end
-    else
-        releaseClaim()
+    elseif claimOrig then
+        pcall(function() if claimOrig.Max then lp.MaximumSimulationRadius = claimOrig.Max end end)
+        if sethiddenproperty and claimOrig.Sim then pcall(sethiddenproperty, lp, "SimulationRadius", claimOrig.Sim) end
+        claimOrig = nil
     end
-end)
-connect(RunService.Heartbeat, function()
-    if not (C.TkClaim and U.Running) then return end
-    pcall(function() lp.MaximumSimulationRadius = 1e9 end)
-    if sethiddenproperty then pcall(sethiddenproperty, lp, "SimulationRadius", 1e9) end
-end)
-
-local function ensureClaim()
-    if not C.TkClaim and TOG.TkClaim then TOG.TkClaim:Set(true) end
 end
 
-local function isGrabbable(part)
-    if not (part and part:IsA("BasePart")) or part.Anchored then return false end
-    if part.Size.Magnitude > C.TkMaxSize then return false end
-    local model = part:FindFirstAncestorOfClass("Model")
+local function mine(part) return not isnetworkowner or isnetworkowner(part) end
+
+local function letGo(part, stop)
+    local c = origCollide[part]
+    origCollide[part] = nil
+    if not part.Parent then return end
+    if c ~= nil then pcall(function() part.CanCollide = c end) end
+    if stop then
+        pcall(function()
+            part.AssemblyLinearVelocity = Vector3.zero
+            part.AssemblyAngularVelocity = Vector3.zero
+        end)
+    end
+end
+
+local function releaseAll()
+    for _, part in ipairs(parts) do letGo(part, true) end
+    table.clear(parts)
+    table.clear(partSet)
+    scanCount = 0
+end
+
+local function grabbableRoot(part)
+    local root = part.AssemblyRootPart
+    if not root or root.Anchored or root.Size.Magnitude > TK_SIZE then return nil end
+    if root:IsDescendantOf(cam()) then return nil end
+    local model = root:FindFirstAncestorOfClass("Model")
     while model do
-        if model:FindFirstChildOfClass("Humanoid") then return false end
+        if model:FindFirstChildOfClass("Humanoid") then return nil end
         model = model:FindFirstAncestorOfClass("Model")
     end
-    return true
+    return root
 end
 
-local function nearbyParts(center, radius, limit)
-    local ignore = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr.Character then table.insert(ignore, plr.Character) end
-    end
-    local params = OverlapParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = ignore
-    local list = {}
-    for _, part in ipairs(workspace:GetPartBoundsInRadius(center, radius, params)) do
-        if isGrabbable(part) then table.insert(list, part) end
-    end
-    table.sort(list, function(a, b) return (a.Position - center).Magnitude < (b.Position - center).Magnitude end)
-    while #list > limit do table.remove(list) end
-    return list
-end
+local function scan(root)
+    local range = C.TkRange >= INF_RANGE and math.huge or C.TkRange
+    local pos = root.Position
 
-local held, holdDist = {}, 0
-local function releaseHeld(throw)
-    if throw and C.TkThrow then
-        local look = cam().CFrame.LookVector
-        for _, h in ipairs(held) do
-            if h.part.Parent then h.part.AssemblyLinearVelocity = look * C.TkThrowPower end
+    for i = #parts, 1, -1 do
+        local part = parts[i]
+        if not part.Parent or part.Anchored then
+            partSet[part] = nil
+            letGo(part, false)
+            table.remove(parts, i)
         end
     end
-    table.clear(held)
-end
 
-local function grab()
-    local pos = UserInputService:GetMouseLocation()
-    local ray = cam():ViewportPointToRay(pos.X, pos.Y)
-    rayParams.FilterDescendantsInstances = { lp.Character }
-    local res = workspace:Raycast(ray.Origin, ray.Direction * 1000, rayParams)
-    if not (res and isGrabbable(res.Instance)) then
-        notify("Telekinesis", "No loose (unanchored) part under the cursor", "warn")
-        return
-    end
-    ensureClaim()
-    holdDist = math.clamp((res.Position - ray.Origin).Magnitude, 5, 500)
-    local parts = { res.Instance }
-    if C.TkCluster then
-        for _, p in ipairs(nearbyParts(res.Position, C.TkRadius, C.TkMax)) do
-            if p ~= res.Instance then table.insert(parts, p) end
+    local seen, found = {}, {}
+    local function consider(p)
+        local r = grabbableRoot(p)
+        if r and not seen[r] and not partSet[r] then
+            seen[r] = true
+            table.insert(found, { part = r, dist = (r.Position - pos).Magnitude })
         end
     end
-    for _, p in ipairs(parts) do table.insert(held, { part = p, off = p.Position - res.Position }) end
-    if isnetworkowner and not isnetworkowner(res.Instance) then
-        notify("Telekinesis", "You do not own that part's physics yet - get closer and keep Claim Physics on", "warn")
-    end
-end
-
-toggle(tkSec, "Telekinesis", "TkEnabled", false, function(v) if not v then releaseHeld(false) end end)
-keybind(tkSec, "Grab / Release Key", "TkKey", Enum.KeyCode.G, function()
-    if not C.TkEnabled then return end
-    if #held > 0 then releaseHeld(true) else grab() end
-end)
-tkSec:Button({ Text = "Release All", Callback = function() releaseHeld(false) end })
-tkSec:Button({ Text = "Launch Nearby Parts", Callback = function()
-    local _, root = myHumanoid()
-    if not root then return end
-    ensureClaim()
-    local n = 0
-    for _, part in ipairs(nearbyParts(root.Position, C.TkRadius, C.TkMax)) do
-        local away = part.Position - root.Position
-        away = (away.Magnitude > 0.1 and away.Unit or Vector3.yAxis) + Vector3.new(0, 0.5, 0)
-        part.AssemblyLinearVelocity = away.Unit * C.TkThrowPower
-        n += 1
-    end
-    notify("Telekinesis", n .. " parts launched", n > 0 and "success" or "warn")
-end })
-toggle(tkSec, "Grab Nearby Parts Too", "TkCluster", false)
-toggle(tkSec, "Throw On Release", "TkThrow", true)
-
-slider(tkTune, "Pull Strength", "TkPull", 1, 50, 15)
-slider(tkTune, "Max Part Speed", "TkMaxSpeed", 50, 2000, 600, { Suffix = " st/s" })
-slider(tkTune, "Cluster Spread", "TkSpread", 0.1, 3, 1, { Decimals = 1, Suffix = "x" })
-slider(tkTune, "Spin", "TkSpin", 0, 50, 0)
-slider(tkTune, "Throw Power", "TkThrowPower", 50, 3000, 400, { Suffix = " st/s" })
-slider(tkTune, "Scroll Step", "TkWheel", 1, 30, 5, { Suffix = " st" })
-slider(tkTune, "Search Radius", "TkRadius", 5, 150, 30, { Suffix = " st" })
-slider(tkTune, "Max Parts", "TkMax", 1, 150, 25)
-slider(tkTune, "Max Part Size", "TkMaxSize", 5, 500, 60, { Suffix = " st" })
-local fireFormation
-local fmSec = miscTab:Section("Telekinesis Formation")
-local fmTune = miscTab:Section("Formation Tuning", "right")
-local formParts, formSet, formScanAt, fireUntil, formWarned = {}, {}, 0, 0, false
-local TAU, GOLDEN = math.pi * 2, math.pi * (3 - math.sqrt(5))
-
-toggle(fmSec, "Formation", "TkOrbit", false, function(v)
-    if v then
-        ensureClaim()
-        formWarned = false
+    if range <= 500 then
+        local ignore = {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character then table.insert(ignore, plr.Character) end
+        end
+        local params = OverlapParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = ignore
+        for _, p in ipairs(workspace:GetPartBoundsInRadius(pos, range, params)) do consider(p) end
     else
-        table.clear(formParts)
-        table.clear(formSet)
+        for _, p in ipairs(workspace:GetDescendants()) do
+            if p:IsA("BasePart") and not p.Anchored and (range == math.huge or (p.Position - pos).Magnitude <= range) then
+                consider(p)
+            end
+        end
+    end
+    table.sort(found, function(a, b) return a.dist < b.dist end)
+
+    for _, f in ipairs(found) do
+        if #parts >= TK_MAX then
+            if not mine(f.part) then break end
+            local dropped
+            for i = #parts, 1, -1 do
+                if not mine(parts[i]) then
+                    partSet[parts[i]] = nil
+                    letGo(parts[i], false)
+                    table.remove(parts, i)
+                    dropped = true
+                    break
+                end
+            end
+            if not dropped then break end
+        end
+        partSet[f.part] = true
+        table.insert(parts, f.part)
+    end
+
+    scanCount += 1
+    if scanCount == 2 then
+        if #parts == 0 then
+            notify("Telekinesis", "No loose parts in range - anchored parts and characters cannot be moved", "warn")
+        else
+            local owned = 0
+            if isnetworkowner then
+                for _, p in ipairs(parts) do if isnetworkowner(p) then owned += 1 end end
+                notify("Telekinesis", #parts .. " parts found, " .. owned .. " are yours (only those move for other players)",
+                    owned > 0 and "success" or "warn")
+            else
+                notify("Telekinesis", #parts .. " parts found", "success")
+            end
+        end
+    end
+end
+
+local function shapeOffset(shape, i, n, t, r, right, flat)
+    local u = (i - 1) / math.max(n - 1, 1)
+    if shape == "Ring" then
+        local layers = math.ceil(n / 36)
+        local perLayer = math.ceil(n / layers)
+        local layer, idx = math.floor((i - 1) / perLayer), (i - 1) % perLayer
+        local count = math.min(perLayer, n - layer * perLayer)
+        local a = t * 1.3 + idx / count * TAU + layer * 0.5
+        return right * math.cos(a) * r + flat * math.sin(a) * r + Vector3.yAxis * ((layer - (layers - 1) / 2) * 2.2)
+    elseif shape == "Tornado" then
+        local a = u * TAU * 4 + t * 3
+        local rad = r * (1 + 0.9 * u)
+        return right * math.cos(a) * rad + flat * math.sin(a) * rad + Vector3.yAxis * (-2 + u * r * 1.6)
+    elseif shape == "Sphere" then
+        local yy = 1 - 2 * (i - 0.5) / n
+        local rr = math.sqrt(math.max(0, 1 - yy * yy))
+        local a = GOLDEN * i + t * 0.8
+        return right * (math.cos(a) * rr * r) + flat * (math.sin(a) * rr * r) + Vector3.yAxis * (yy * r)
+    elseif shape == "Infinity" then
+        local a = u * TAU + t * 0.9
+        local s = math.sin(a)
+        local den = 1 + s * s
+        local size = math.max(r * 0.8, 6)
+        local z = r + ((i % 3) - 1) * 0.9 + math.sin(t * 2 + i) * 0.3
+        return right * (size * math.cos(a) / den) + Vector3.yAxis * (2 + size * s * math.cos(a) / den * 1.1) + flat * z
+    elseif shape == "Galaxy" then
+        local arm = (i - 1) % 3
+        local k = math.floor((i - 1) / 3)
+        local f = k / math.max(math.ceil(n / 3) - 1, 1)
+        local rad = r * (1 + f * 1.1)
+        local a = arm / 3 * TAU + f * TAU * 1.1 + t * 0.9
+        return right * math.cos(a) * rad + flat * math.sin(a) * rad + Vector3.yAxis * (math.sin(t * 1.5 + f * 6) * 1.2)
+    elseif shape == "DNA Helix" then
+        local strand = (i - 1) % 2
+        local f = math.floor((i - 1) / 2) / math.max(math.ceil(n / 2) - 1, 1)
+        local a = f * TAU * 2.5 + t * 2.2 + strand * math.pi
+        return right * math.cos(a) * r + flat * math.sin(a) * r + Vector3.yAxis * (-2 + f * r * 2.2)
+    else
+        local side = (i % 2 == 0) and 1 or -1
+        local k = math.floor((i - 1) / 2)
+        local row = k % 3
+        local cols = math.max(math.ceil(math.ceil(n / 2) / 3), 1)
+        local f = (math.floor(k / 3) + 0.5) / cols
+        local x = side * (r * 0.5 + f * r * 1.3)
+        local y = 1 + f * r * 0.5 - row * r * 0.25 * (1 - 0.5 * f) + math.abs(x) * math.sin(t * 2.6) * 0.22
+        return right * x + Vector3.yAxis * y - flat * (3 + r * 0.25 + row * 0.25)
+    end
+end
+
+toggle(tkSec, "Telekinesis", "TkEnabled", false, function(v)
+    if v then
+        setClaim(true)
+        scanAt, scanCount = 0, 0
+    else
+        releaseAll()
+        setClaim(false)
     end
 end)
-dropdown(fmSec, "Shape", "TkShape", { "Ring", "Tornado", "Sphere" }, "Ring")
-dropdown(fmSec, "Around", "TkAround", { "Cursor", "Me" }, "Cursor")
-dropdown(fmSec, "Ring Plane", "TkPlane", { "Facing Camera", "Flat" }, "Facing Camera")
-toggle(fmSec, "Reverse Direction", "TkReverse", false)
-keybind(fmSec, "Fire Key", "TkFireKey", nil, function() if fireFormation then fireFormation() end end)
-slider(fmSec, "Fire Pause", "TkFirePause", 0.2, 3, 1, { Decimals = 1, Suffix = " s" })
-
-slider(fmTune, "Circle Size", "TkFormRadius", 1, 150, 12, { Suffix = " st" })
-slider(fmTune, "Height Offset", "TkFormHeight", -30, 80, 0, { Suffix = " st" })
-slider(fmTune, "Layers", "TkLayers", 1, 12, 1)
-slider(fmTune, "Layer Gap", "TkLayerGap", 0, 20, 3, { Decimals = 1, Suffix = " st" })
-slider(fmTune, "Funnel Taper", "TkTaper", -1.5, 3, 0.6, { Decimals = 1, Suffix = "x" })
-slider(fmTune, "Spin Speed", "TkFormSpeed", 0, 1440, 180, { Suffix = "°/s" })
-slider(fmTune, "Tilt", "TkTilt", 0, 90, 0, { Suffix = "°" })
-slider(fmTune, "Wobble", "TkWobble", 0, 15, 0, { Decimals = 1, Suffix = " st" })
-slider(fmTune, "Pulse Size", "TkPulse", 0, 30, 0, { Decimals = 1, Suffix = " st" })
-slider(fmTune, "Pulse Speed", "TkPulseSpeed", 0.1, 5, 1, { Decimals = 1, Suffix = " Hz" })
-local distSlider = slider(fmTune, "Cursor Distance", "TkFormDist", 5, 500, 40, { Suffix = " st" })
-slider(fmTune, "Rescan Time", "TkRescan", 0.1, 3, 0.5, { Decimals = 1, Suffix = " s" })
-
-fireFormation = function()
-    if not C.TkOrbit or #formParts == 0 then return end
+dropdown(tkSec, "Pattern", "TkShape", SHAPES, "Infinity")
+slider(tkSec, "Distance", "TkDist", 4, 200, 16, { Suffix = " st" })
+slider(tkSec, "Range", "TkRange", 25, INF_RANGE, 300, { Suffix = " st", MaxLabel = "Infinite" })
+keybind(tkSec, "Fire Key", "TkFireKey", Enum.KeyCode.G, function()
+    if not C.TkEnabled or #parts == 0 then return end
     local m = UserInputService:GetMouseLocation()
     local ray = cam():ViewportPointToRay(m.X, m.Y)
     rayParams.FilterDescendantsInstances = { lp.Character }
-    local res = workspace:Raycast(ray.Origin, ray.Direction * 1000, rayParams)
-    local target = res and res.Position or (ray.Origin + ray.Direction * 300)
-    for _, part in ipairs(formParts) do
+    local res = workspace:Raycast(ray.Origin, ray.Direction * 2000, rayParams)
+    local target = res and res.Position or (ray.Origin + ray.Direction * 500)
+    for _, part in ipairs(parts) do
         if part.Parent then
             local d = target - part.Position
-            if d.Magnitude > 0.1 then part.AssemblyLinearVelocity = d.Unit * C.TkThrowPower end
+            if d.Magnitude > 0.1 then part.AssemblyLinearVelocity = d.Unit * 500 end
         end
     end
-    fireUntil = os.clock() + C.TkFirePause
+    fireUntil = os.clock() + 1
+end)
+tkSec:Button({ Text = "Release All", Callback = function() releaseAll() end })
+
+onUnload(function()
+    releaseAll()
+    setClaim(false)
+end)
+
+local lost = 0
+U.TkStats = function()
+    local m, anch, gone = 0, 0, 0
+    for _, part in ipairs(parts) do
+        if not part.Parent then gone += 1 elseif part.Anchored then anch += 1 end
+        if part.Parent and mine(part) then m += 1 end
+    end
+    return { held = #parts, mine = m, anchored = anch, gone = gone, lost = lost }
 end
 
-connect(UserInputService.InputChanged, function(input)
-    if input.UserInputType ~= Enum.UserInputType.MouseWheel then return end
-    if #held > 0 then
-        holdDist = math.clamp(holdDist + input.Position.Z * C.TkWheel, 5, 500)
-    elseif C.TkOrbit and C.TkAround == "Cursor" then
-        distSlider:Set(math.clamp(C.TkFormDist + input.Position.Z * C.TkWheel, 5, 500))
+connect(RunService.Heartbeat, function()
+    if claimOrig and C.TkEnabled and U.Running then
+        pcall(function() lp.MaximumSimulationRadius = 1e9 end)
+        if sethiddenproperty then pcall(sethiddenproperty, lp, "SimulationRadius", 1e9) end
     end
 end)
-connect(RunService.Heartbeat, function()
-    if not U.Running then return end
 
-    if #held > 0 and C.TkEnabled then
-        local m = UserInputService:GetMouseLocation()
-        local ray = cam():ViewportPointToRay(m.X, m.Y)
-        local point = ray.Origin + ray.Direction * holdDist
-        for i = #held, 1, -1 do
-            local part = held[i].part
-            if not part.Parent or part.Anchored then
-                table.remove(held, i)
-            else
-                local v = (point + held[i].off * C.TkSpread - part.Position) * C.TkPull
-                if v.Magnitude > C.TkMaxSpeed then v = v.Unit * C.TkMaxSpeed end
-                part.AssemblyLinearVelocity = v
-                part.AssemblyAngularVelocity = Vector3.new(0, C.TkSpin, 0)
-            end
-        end
-    end
-
-    if not C.TkOrbit then return end
+connect(RunService.PreSimulation or RunService.Heartbeat, function(dt)
+    if not (C.TkEnabled and U.Running) then return end
     local _, root = myHumanoid()
-    if not root then return end
+    if not root then
+        for _, part in ipairs(parts) do if origCollide[part] ~= nil then letGo(part, true) end end
+        return
+    end
     local now = os.clock()
 
-    local heldPart = {}
-    for _, h in ipairs(held) do heldPart[h.part] = true end
-
-    if now - formScanAt > C.TkRescan then
-        formScanAt = now
-        for i = #formParts, 1, -1 do
-            local part = formParts[i]
-            if not part.Parent or part.Anchored then
-                formSet[part] = nil
-                table.remove(formParts, i)
-            end
-        end
-        for _, part in ipairs(nearbyParts(root.Position, C.TkRadius, C.TkMax * 2)) do
-            if #formParts >= C.TkMax then break end
-            if not formSet[part] and not heldPart[part] then
-                formSet[part] = true
-                table.insert(formParts, part)
-            end
-        end
-        while #formParts > C.TkMax do formSet[table.remove(formParts)] = nil end
-        if #formParts == 0 and not formWarned then
-            formWarned = true
-            notify("Telekinesis", "No loose parts within " .. C.TkRadius .. " studs of you", "warn")
-        elseif #formParts > 0 then
-            formWarned = false
-        end
+    if now - scanAt > TK_RESCAN then
+        scanAt = now
+        scan(root)
     end
-
-    if now < fireUntil then return end
-    local n = #formParts
-    if n == 0 then return end
+    local n = #parts
+    if n == 0 or now < fireUntil then return end
 
     local shape = C.TkShape
-    local c = cam().CFrame
-    local center
-    if C.TkAround == "Cursor" then
-        local m = UserInputService:GetMouseLocation()
-        local ray = cam():ViewportPointToRay(m.X, m.Y)
-        center = ray.Origin + ray.Direction * C.TkFormDist
-    else
-        center = root.Position
-    end
-    center += Vector3.new(0, C.TkFormHeight, 0)
-
-    local upright = C.TkPlane == "Flat" or shape == "Tornado"
-    local basis = upright and CFrame.new() or CFrame.fromMatrix(Vector3.zero, c.RightVector, c.LookVector)
-    basis *= CFrame.Angles(math.rad(C.TkTilt), 0, 0)
-
-    local layers = 1
-    if shape == "Ring" then layers = C.TkLayers elseif shape == "Tornado" then layers = math.max(C.TkLayers, 3) end
-    layers = math.clamp(layers, 1, n)
-    local perLayer = math.ceil(n / layers)
-    local spin = math.rad(C.TkFormSpeed) * now * (C.TkReverse and -1 or 1)
-    local pulse = C.TkPulse * math.sin(now * C.TkPulseSpeed * TAU)
+    if shape == "Cycle" then shape = CYCLE[math.floor(now / CYCLE_TIME) % #CYCLE + 1] end
+    local look = cam().CFrame.LookVector
+    local flat = Vector3.new(look.X, 0, look.Z)
+    flat = flat.Magnitude > 0.01 and flat.Unit or Vector3.zAxis
+    local right = flat:Cross(Vector3.yAxis)
+    local center = root.Position + Vector3.new(0, 2, 0)
+    local gain = math.min(18 * math.max(dt, 1 / 240), 0.9) / math.max(dt, 1 / 240)
 
     for i = 1, n do
-        local part = formParts[i]
-        if not heldPart[part] then
-            local offset
-            if shape == "Sphere" then
-                local yy = 1 - 2 * (i - 0.5) / n
-                local rr = math.sqrt(math.max(0, 1 - yy * yy))
-                local theta = GOLDEN * i + spin
-                offset = Vector3.new(math.cos(theta) * rr, yy, math.sin(theta) * rr) * math.max(C.TkFormRadius + pulse, 0.5)
-            else
-                local layer = math.floor((i - 1) / perLayer)
-                local idx = (i - 1) % perLayer
-                local count = math.min(perLayer, n - layer * perLayer)
-                local angle = spin + idx / count * TAU + layer * 0.9
-                local radius = math.max(C.TkFormRadius * (1 + C.TkTaper * layer / math.max(layers - 1, 1)) + pulse, 0.5)
-                local axis = layer * C.TkLayerGap + C.TkWobble * math.sin(now * 2 + idx * 0.7)
-                offset = Vector3.new(math.cos(angle) * radius, axis, math.sin(angle) * radius)
-            end
-            local v = (center + basis:VectorToWorldSpace(offset) - part.Position) * C.TkPull
-            if v.Magnitude > C.TkMaxSpeed then v = v.Unit * C.TkMaxSpeed end
-            part.AssemblyLinearVelocity = v
-            part.AssemblyAngularVelocity = Vector3.new(0, C.TkSpin, 0)
+        local part = parts[i]
+        if not mine(part) then
+            if origCollide[part] ~= nil then lost += 1 letGo(part, false) end
+            continue
         end
+        if origCollide[part] == nil then
+            origCollide[part] = part.CanCollide
+            part.CanCollide = false
+        end
+        local v = (center + shapeOffset(shape, i, n, now, C.TkDist, right, flat) - part.Position) * gain
+        if v.Magnitude > 900 then v = v.Unit * 900 end
+        part.AssemblyLinearVelocity = v
+        part.AssemblyAngularVelocity = Vector3.new(0, 4, 0)
     end
 end)
+end
 
 local chatSec = miscTab:Section("Chat Spy")
 local chatOpt = miscTab:Section("Chat Spy Options", "right")
