@@ -7,7 +7,7 @@ Een universele Roblox-scripthub, gebouwd op **TerkanUI**, een donkerrode UI-bibl
 </p>
 
 ```
-Aimbot · Trigger · Rage · Cursor · Visuals · Movement · Defense · Player · Fling · Avatar · Misc · Notifications · Settings
+Aimbot · Trigger · Rage · Cursor · ESP · Visuals · Movement · Defense · Player · Fling · Avatar · Misc · Notifications · Settings
 ```
 
 > **Gebruik het in je eigen games en privéservers.** Scripts zoals dit zijn in de meeste openbare games niet toegestaan en kunnen je account laten verbannen. Jij bent zelf verantwoordelijk voor waar je het draait. Zie de [disclaimer](#disclaimer).
@@ -66,8 +66,16 @@ Rage **pauzeert zolang het menu open is**, zodat je hem altijd kunt uitzetten, e
 ### Cursor
 Een eigen richtkruis (kruis, X, ster, cirkel, stip ...) met regenboogkleuren, rotatie, animaties en een "mikt op"-label met naam, afstand en gezondheid.
 
-### Visuals
+### ESP
 Speler-ESP met een 3D-box, **skeleton** (lijnen door de gewrichten, voor R6 en R15), een **groene gezondheidsbalk links van de box** die van onder naar boven loopt (optioneel verkleurend naar rood bij weinig gezondheid), namen, afstand, vastgehouden item, chams en tracers, met volledige kleurkeuze. Spelers op je whitelist en blacklist krijgen een eigen kleur. Ook fullbright, tijd van de dag en FOV.
+
+### Visuals
+Een shader-look die de game er mooier uit laat zien, zonder kleurfilter over het scherm. Alles wordt bij uitzetten teruggezet.
+- **Vivid Colors** – fellere kleuren, meer contrast, gloed op felle plekken en zonnestralen. Looks: Natural, Vivid, Ultra Vivid, Extreme, Hyper en Cinematic (met een lichte scherptediepte), plus een Intensity-slider.
+- **Future Lighting** – zet de moderne lichtengine aan (via een verborgen property).
+- **Shadows & Reflections** – zonneschaduwen, zachtere schaduwranden en reflecties van de lucht.
+- **Max Graphics**, **Rich Light** (een fellere zon), **Clear Air** (geen mist of waas), **Pretty Water** (helder, reflecterend water) en **Extra Stars**.
+- **Lock Time** – zet de tijd van de dag vast op een zelfgekozen moment.
 
 ### Movement
 Snelheid, springen, vliegen (met verticale snelheid en gladheid), noclip, oneindig springen en anti stun (je kunt nog bewegen als het spel je neer wil houden).
