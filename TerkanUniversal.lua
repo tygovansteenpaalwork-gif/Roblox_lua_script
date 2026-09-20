@@ -4528,6 +4528,46 @@ end)
 toggle(menuSec, "Background Blur", "BlurOn", false, function(v) win:SetBlur(v, C.BlurSize) end)
 slider(menuSec, "Blur Strength", "BlurSize", 4, 40, 16, { OnChange = function(v) if C.BlurOn then win:SetBlur(true, v) end end })
 slider(menuSec, "UI Scale", "UiScale", 0.6, 1.4, 1, { Decimals = 2, OnChange = function(v) win:SetScale(v) end })
+
+;(function()
+    toggle(menuSec, "Free Mouse When Menu Open", "FreeMouse", true)
+
+    local modalGui = Instance.new("ScreenGui")
+    modalGui.Name = "TerkanFreeMouse"
+    modalGui.ResetOnSpawn = false
+    modalGui.DisplayOrder = 1
+    modalGui.Parent = lp:WaitForChild("PlayerGui")
+    local modal = Instance.new("TextButton")
+    modal.Size = UDim2.fromOffset(2, 2)
+    modal.BackgroundTransparency = 1
+    modal.Text = ""
+    modal.Modal = true
+    modal.Visible = false
+    modal.Parent = modalGui
+    onUnload(function() modalGui:Destroy() end)
+
+    local wasFree = false
+    local function frame()
+        if not U.Running then return end
+        local open = C.FreeMouse and win.Main.Visible
+        if open then
+            modal.Visible = true
+            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            end
+            UserInputService.MouseIconEnabled = true
+            wasFree = true
+        elseif wasFree then
+            wasFree = false
+            modal.Visible = false
+        end
+    end
+    bindCounter += 1
+    local name = "TerkanU_" .. bindCounter
+    RunService:BindToRenderStep(name, Enum.RenderPriority.Last.Value + 1, frame)
+    table.insert(U.Binds, name)
+end)()
+
 menuSec:Button({ Text = "Unload Menu", Callback = function() U.Unload() end })
 
 local function flip(key) return function() if TOG[key] then TOG[key]:Set(not TOG[key]:Get()) end end end
