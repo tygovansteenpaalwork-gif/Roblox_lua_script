@@ -2922,7 +2922,11 @@ connect(RunService.Stepped, function()
     end
 end)
 
-local function voidLine() return math.max(workspace.FallenPartsDestroyHeight, -1000) + C.VoidDepth end
+local function voidLine()
+    local h = workspace.FallenPartsDestroyHeight
+    if h ~= h then h = -500 end
+    return math.max(h, -1000) + C.VoidDepth
+end
 
 local function attack(target, void, token)
     local _, _, root0 = charOf(target)
