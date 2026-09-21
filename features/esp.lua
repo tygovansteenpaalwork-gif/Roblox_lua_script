@@ -3,7 +3,7 @@
     Player ESP: 3D box, skeleton, health bar, names, chams, tracers, plus fullbright, time of day and FOV.
 
     Runs on its own: opens a small menu with just this feature. It is the same code as in the Terkan Universal hub
-    (https://github.com/tygovansteenpaalwork-gif/Roblox_lua_script), cut out by tools/build_features.py - do not edit by hand, change the hub and rebuild.
+    (https://github.com/tygovansteenpaalwork-gif/Roblox_lua_script), cut out by tools/build_features.py - do not edit by hand, change src/ and run tools/build.py.
 
     Run it:   loadstring(game:HttpGet("https://raw.githubusercontent.com/tygovansteenpaalwork-gif/Roblox_lua_script/main/features/esp.lua"))()
 --]]
@@ -13,9 +13,8 @@ local Core = getgenv().TerkanCore or loadstring(game:HttpGet(BASE .. "features/_
 local ctx = Core({ Name = "esp", Title = "ESP" })
 
 local C, Lighting, Players, Ready, RunService, U = ctx.C, ctx.Lighting, ctx.Players, ctx.Ready, ctx.RunService, ctx.U
-local cam, charOf, color, connect, lp, onUnload = ctx.cam, ctx.charOf, ctx.color, ctx.connect, ctx.lp, ctx.onUnload
-local overlay, parentGui, renderLast, sameTeam, screenPoint, slider = ctx.overlay, ctx.parentGui, ctx.renderLast, ctx.sameTeam, ctx.screenPoint, ctx.slider
-local toggle, win = ctx.toggle, ctx.win
+local cam, color, connect, onUnload, overlay, parentGui = ctx.cam, ctx.color, ctx.connect, ctx.onUnload, ctx.overlay, ctx.parentGui
+local renderLast, sameTeam, screenPoint, slider, toggle, win = ctx.renderLast, ctx.sameTeam, ctx.screenPoint, ctx.slider, ctx.toggle, ctx.win
 
 local visTab = win:Tab("ESP")
 local esp = visTab:Section("Player ESP")
@@ -55,6 +54,15 @@ local espRoot = Instance.new("Folder")
 espRoot.Name = U.rname()
 espRoot.Parent = parentGui()
 onUnload(function() espRoot:Destroy() end)
+
+-- all 2D ESP frames (health bar, skeleton, tracer) live in one container of their own, so anything in it that no live
+-- ESP object owns can be recognised and removed (the overlay itself is shared with other features)
+U.EspLayer = Instance.new("Frame")
+U.EspLayer.Name = U.rname()
+U.EspLayer.BackgroundTransparency = 1
+U.EspLayer.BorderSizePixel = 0
+U.EspLayer.Size = UDim2.fromScale(1, 1)
+U.EspLayer.Parent = overlay
 
 local ESP = {}
 
@@ -122,8 +130,14 @@ U.skelBones = function(char, hum)
     return out
 end
 
-local function buildESP(plr)
+-- why the ESP set of a player was (re)built - kept for U.EspStats(), to see what makes the number of sets grow
+U.EspBuilds, U.EspSwept, U.EspLog = 0, 0, {}
+
+local function buildESP(plr, why)
     local o = { plr = plr, tick = 0 }
+    U.EspBuilds += 1
+    table.insert(U.EspLog, ("%.1f %s %s"):format(os.clock() % 10000, plr.Name, why or "new"))
+    if #U.EspLog > 20 then table.remove(U.EspLog, 1) end
 
     o.hl = Instance.new("Highlight")
     o.hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
@@ -133,7 +147,7 @@ local function buildESP(plr)
     -- health bar: a dark track just left of the box, the fill grows from the bottom up. It is a plain 2D
     -- frame on the overlay, placed every frame from the projected corners of the 3D box (a BillboardGui
     -- carrying only frames did not render at all, so this cannot go missing)
-    o.hpBack = frame(overlay, {
+    o.hpBack = frame(U.EspLayer, {
         Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(4, 10), Visible = false,
         BackgroundColor3 = Color3.fromRGB(15, 15, 15), BackgroundTransparency = 0.15,
     })
@@ -149,7 +163,7 @@ local function buildESP(plr)
     -- skeleton: up to 14 thin 2D lines between joints, drawn on the overlay like the tracer
     o.bones = {}
     for i = 1, 14 do
-        o.bones[i] = frame(overlay, { AnchorPoint = Vector2.new(0.5, 0.5), Visible = false })
+        o.bones[i] = frame(U.EspLayer, { AnchorPoint = Vector2.new(0.5, 0.5), Visible = false })
     end
 
     -- text stack above the head; hidden labels take no space (bottom aligned)
@@ -187,7 +201,7 @@ local function buildESP(plr)
         o.edges[i] = e
     end
 
-    o.tracer = frame(overlay, { AnchorPoint = Vector2.new(0.5, 0.5), Visible = false })
+    o.tracer = frame(U.EspLayer, { AnchorPoint = Vector2.new(0.5, 0.5), Visible = false })
     return o
 end
 
@@ -234,6 +248,41 @@ connect(Players.PlayerRemoving, function(plr)
 end)
 onUnload(function() for _, o in pairs(ESP) do destroyESP(o) end table.clear(ESP) end)
 
+-- Self-healing: once a second, drop the sets of players who are gone or whose instances were destroyed, and destroy
+-- everything in the ESP folder / layer that no live set owns. Whatever the cause of a leak, it cannot pile up.
+function U.EspSweep()
+    for plr, o in pairs(ESP) do
+        if not plr.Parent then
+            destroyESP(o) ESP[plr] = nil
+        elseif o.hl.Parent ~= espRoot or o.hpBack.Parent ~= U.EspLayer then
+            destroyESP(o) ESP[plr] = nil   -- rebuilt on the next frame (reason "orphaned")
+            U.EspOrphaned = plr
+        end
+    end
+    local live = {}
+    for _, o in pairs(ESP) do
+        live[o.hl], live[o.info], live[o.hpBack], live[o.tracer] = true, true, true, true
+        for _, e in ipairs(o.edges) do live[e] = true end
+        for _, b in ipairs(o.bones) do live[b] = true end
+    end
+    local removed = 0
+    for _, box in ipairs({ espRoot, U.EspLayer }) do
+        for _, child in ipairs(box:GetChildren()) do
+            if not live[child] then child:Destroy() removed += 1 end
+        end
+    end
+    U.EspSwept += removed
+    return removed
+end
+
+-- for debugging: how many ESP sets exist, how many instances they hold, how often they were built / swept
+function U.EspStats()
+    local sets = 0
+    for _ in pairs(ESP) do sets += 1 end
+    return { sets = sets, folder = #espRoot:GetChildren(), layer = #U.EspLayer:GetChildren(),
+             builds = U.EspBuilds, swept = U.EspSwept, log = U.EspLog }
+end
+
 connect(RunService.RenderStepped, function()
     if not U.Running then return end
     local c = cam()
@@ -241,16 +290,27 @@ connect(RunService.RenderStepped, function()
     local vp = c.ViewportSize
     local now = os.clock()
 
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= lp then
-            local char, hum, root = charOf(plr)
+    if now - (U.EspSweepAt or 0) > 1 then
+        U.EspSweepAt = now
+        U.EspSweep()
+    end
+
+    for _, e in ipairs(U.Others()) do
+        local plr = e.plr
+        do
+            local char, hum, root = e.char, e.hum, e.root
+            if not (hum and root) or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then char = nil end
             local show = C.ESPEnabled and char ~= nil
             if show and C.ESPTeam and sameTeam(plr) then show = false end
             local dist = show and (root.Position - camPos).Magnitude or 0
             if show and dist > C.ESPDist then show = false end
 
             local o = ESP[plr]
-            if show and not o then o = buildESP(plr) ESP[plr] = o end
+            if show and not o then
+                o = buildESP(plr, U.EspOrphaned == plr and "orphaned" or "new")
+                if U.EspOrphaned == plr then U.EspOrphaned = nil end
+                ESP[plr] = o
+            end
             if o then
                 if not show then
                     hideESP(o)

@@ -49,7 +49,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.2.2"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.3.0"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -92,6 +92,10 @@ local function renderFirst(fn)
     RunService:BindToRenderStep(name, Enum.RenderPriority.First.Value, U.Guard(fn))
     table.insert(U.Binds, name)
 end
+
+-- frame counter: lets per-frame caches (U.Others) know when they are stale
+U.Frame = 0
+renderFirst(function() U.Frame += 1 end)
 
 local function cam() return workspace.CurrentCamera end
 
@@ -375,6 +379,27 @@ local function charOf(plr, allowDead)
     return c, hum, root
 end
 
+-- The other players with their character parts, looked up ONCE per frame instead of once per feature per frame
+-- (aimbot, rage, trigger, ESP ... all ask for the same list). Entries: { plr, char, hum, root } - char / hum / root
+-- are nil while the player has no character. Stale after one render frame or 0.1 s, whichever comes first.
+function U.Others()
+    local now = os.clock()
+    if U.snap and U.snapFrame == U.Frame and now - U.snapTime < 0.1 then return U.snap end
+    local out = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp then
+            local c = plr.Character
+            out[#out + 1] = {
+                plr = plr, char = c,
+                hum = c and c:FindFirstChildOfClass("Humanoid"),
+                root = c and c:FindFirstChild("HumanoidRootPart"),
+            }
+        end
+    end
+    U.snap, U.snapFrame, U.snapTime = out, U.Frame, now
+    return out
+end
+
 local function sameTeam(plr)
     return lp.Team ~= nil and plr.Team ~= nil and plr.Team == lp.Team
 end
@@ -385,13 +410,15 @@ local function screenPoint(pos)
 end
 
 local function visible(part, char)
-    rayParams.FilterDescendantsInstances = { lp.Character }
+    local me = lp.Character
+    if U.rayChar ~= me then U.rayChar = me rayParams.FilterDescendantsInstances = { me } end
     local origin = cam().CFrame.Position
     local res = workspace:Raycast(origin, part.Position - origin, rayParams)
     return res == nil or res.Instance:IsDescendantOf(char)
 end
 
 local randomPick = {}
+connect(Players.PlayerRemoving, function(plr) randomPick[plr] = nil end)
 local function candidateParts(plr, char, mode)
     local head = char:FindFirstChild("Head")
     local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
@@ -431,11 +458,17 @@ local function selectTarget(o)
     local best, bestScore
 
     local anyBlack = next(U.Black) ~= nil
-    for _, plr in ipairs(Players:GetPlayers()) do
+    for _, e in ipairs(U.Others()) do
+        local plr = e.plr
         local listed = not (C.ListRespectWhite and U.White[plr.Name])
             and not (C.ListOnlyBlack and anyBlack and not U.Black[plr.Name])
-        if plr ~= lp and listed and (not o.Only or plr.Name == o.Only) then
-            local char, hum, root = charOf(plr, o.AllowDead)
+        if listed and (not o.Only or plr.Name == o.Only) then
+            -- same test as charOf(plr, o.AllowDead), on the shared per-frame snapshot
+            local char, hum, root = e.char, e.hum, e.root
+            if not (hum and root)
+                or (not o.AllowDead and (hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead)) then
+                char = nil
+            end
             if char and not (o.Team and sameTeam(plr)) and not (o.NoFF and char:FindFirstChildOfClass("ForceField"))
                 and not (o.NoInvis and U.isInvisible(char)) then
                 local dist = (root.Position - camPos).Magnitude
@@ -460,6 +493,9 @@ local function selectTarget(o)
                                             dist = dist, fovDist = fovDist,
                                         }
                                     end
+                                    -- these two scores are the same for every part of this player: the first part that
+                                    -- passed decides, so skip the remaining parts (and their wall raycasts)
+                                    if o.Priority == "Lowest Health" or o.Priority == "Closest Distance" then break end
                                 end
                             end
                         end
@@ -1606,6 +1642,15 @@ espRoot.Name = U.rname()
 espRoot.Parent = parentGui()
 onUnload(function() espRoot:Destroy() end)
 
+-- all 2D ESP frames (health bar, skeleton, tracer) live in one container of their own, so anything in it that no live
+-- ESP object owns can be recognised and removed (the overlay itself is shared with other features)
+U.EspLayer = Instance.new("Frame")
+U.EspLayer.Name = U.rname()
+U.EspLayer.BackgroundTransparency = 1
+U.EspLayer.BorderSizePixel = 0
+U.EspLayer.Size = UDim2.fromScale(1, 1)
+U.EspLayer.Parent = overlay
+
 local ESP = {}
 
 local function frame(parent, props)
@@ -1672,8 +1717,14 @@ U.skelBones = function(char, hum)
     return out
 end
 
-local function buildESP(plr)
+-- why the ESP set of a player was (re)built - kept for U.EspStats(), to see what makes the number of sets grow
+U.EspBuilds, U.EspSwept, U.EspLog = 0, 0, {}
+
+local function buildESP(plr, why)
     local o = { plr = plr, tick = 0 }
+    U.EspBuilds += 1
+    table.insert(U.EspLog, ("%.1f %s %s"):format(os.clock() % 10000, plr.Name, why or "new"))
+    if #U.EspLog > 20 then table.remove(U.EspLog, 1) end
 
     o.hl = Instance.new("Highlight")
     o.hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
@@ -1683,7 +1734,7 @@ local function buildESP(plr)
     -- health bar: a dark track just left of the box, the fill grows from the bottom up. It is a plain 2D
     -- frame on the overlay, placed every frame from the projected corners of the 3D box (a BillboardGui
     -- carrying only frames did not render at all, so this cannot go missing)
-    o.hpBack = frame(overlay, {
+    o.hpBack = frame(U.EspLayer, {
         Position = UDim2.fromOffset(0, 0), Size = UDim2.fromOffset(4, 10), Visible = false,
         BackgroundColor3 = Color3.fromRGB(15, 15, 15), BackgroundTransparency = 0.15,
     })
@@ -1699,7 +1750,7 @@ local function buildESP(plr)
     -- skeleton: up to 14 thin 2D lines between joints, drawn on the overlay like the tracer
     o.bones = {}
     for i = 1, 14 do
-        o.bones[i] = frame(overlay, { AnchorPoint = Vector2.new(0.5, 0.5), Visible = false })
+        o.bones[i] = frame(U.EspLayer, { AnchorPoint = Vector2.new(0.5, 0.5), Visible = false })
     end
 
     -- text stack above the head; hidden labels take no space (bottom aligned)
@@ -1737,7 +1788,7 @@ local function buildESP(plr)
         o.edges[i] = e
     end
 
-    o.tracer = frame(overlay, { AnchorPoint = Vector2.new(0.5, 0.5), Visible = false })
+    o.tracer = frame(U.EspLayer, { AnchorPoint = Vector2.new(0.5, 0.5), Visible = false })
     return o
 end
 
@@ -1784,6 +1835,41 @@ connect(Players.PlayerRemoving, function(plr)
 end)
 onUnload(function() for _, o in pairs(ESP) do destroyESP(o) end table.clear(ESP) end)
 
+-- Self-healing: once a second, drop the sets of players who are gone or whose instances were destroyed, and destroy
+-- everything in the ESP folder / layer that no live set owns. Whatever the cause of a leak, it cannot pile up.
+function U.EspSweep()
+    for plr, o in pairs(ESP) do
+        if not plr.Parent then
+            destroyESP(o) ESP[plr] = nil
+        elseif o.hl.Parent ~= espRoot or o.hpBack.Parent ~= U.EspLayer then
+            destroyESP(o) ESP[plr] = nil   -- rebuilt on the next frame (reason "orphaned")
+            U.EspOrphaned = plr
+        end
+    end
+    local live = {}
+    for _, o in pairs(ESP) do
+        live[o.hl], live[o.info], live[o.hpBack], live[o.tracer] = true, true, true, true
+        for _, e in ipairs(o.edges) do live[e] = true end
+        for _, b in ipairs(o.bones) do live[b] = true end
+    end
+    local removed = 0
+    for _, box in ipairs({ espRoot, U.EspLayer }) do
+        for _, child in ipairs(box:GetChildren()) do
+            if not live[child] then child:Destroy() removed += 1 end
+        end
+    end
+    U.EspSwept += removed
+    return removed
+end
+
+-- for debugging: how many ESP sets exist, how many instances they hold, how often they were built / swept
+function U.EspStats()
+    local sets = 0
+    for _ in pairs(ESP) do sets += 1 end
+    return { sets = sets, folder = #espRoot:GetChildren(), layer = #U.EspLayer:GetChildren(),
+             builds = U.EspBuilds, swept = U.EspSwept, log = U.EspLog }
+end
+
 connect(RunService.RenderStepped, function()
     if not U.Running then return end
     local c = cam()
@@ -1791,16 +1877,27 @@ connect(RunService.RenderStepped, function()
     local vp = c.ViewportSize
     local now = os.clock()
 
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= lp then
-            local char, hum, root = charOf(plr)
+    if now - (U.EspSweepAt or 0) > 1 then
+        U.EspSweepAt = now
+        U.EspSweep()
+    end
+
+    for _, e in ipairs(U.Others()) do
+        local plr = e.plr
+        do
+            local char, hum, root = e.char, e.hum, e.root
+            if not (hum and root) or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then char = nil end
             local show = C.ESPEnabled and char ~= nil
             if show and C.ESPTeam and sameTeam(plr) then show = false end
             local dist = show and (root.Position - camPos).Magnitude or 0
             if show and dist > C.ESPDist then show = false end
 
             local o = ESP[plr]
-            if show and not o then o = buildESP(plr) ESP[plr] = o end
+            if show and not o then
+                o = buildESP(plr, U.EspOrphaned == plr and "orphaned" or "new")
+                if U.EspOrphaned == plr then U.EspOrphaned = nil end
+                ESP[plr] = o
+            end
             if o then
                 if not show then
                     hideESP(o)

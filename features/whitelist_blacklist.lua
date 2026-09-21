@@ -3,7 +3,7 @@
     Friends are skipped by every targeting feature, blacklisted players are targeted first. Auto-whitelists Roblox friends.
 
     Runs on its own: opens a small menu with just this feature. It is the same code as in the Terkan Universal hub
-    (https://github.com/tygovansteenpaalwork-gif/Roblox_lua_script), cut out by tools/build_features.py - do not edit by hand, change the hub and rebuild.
+    (https://github.com/tygovansteenpaalwork-gif/Roblox_lua_script), cut out by tools/build_features.py - do not edit by hand, change src/ and run tools/build.py.
 
     Run it:   loadstring(game:HttpGet("https://raw.githubusercontent.com/tygovansteenpaalwork-gif/Roblox_lua_script/main/features/whitelist_blacklist.lua"))()
 --]]
