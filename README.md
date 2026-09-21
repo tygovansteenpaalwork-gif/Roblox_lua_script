@@ -10,6 +10,22 @@ Aimbot · Trigger · Rage · Cursor · ESP · Visuals · Movement · Defense · 
 
 ---
 
+## Snel starten
+
+Eén regel laadt de loader, en daarna kies je wat je wilt:
+
+```lua
+local Terkan = loadstring(game:HttpGet("https://raw.githubusercontent.com/tygovansteenpaalwork-gif/Roblox_lua_script/main/Terkan.lua"))()
+
+Terkan.hub()              -- het hele menu met alle 15 tabs
+Terkan.feature("esp")     -- of maar één functie, in een klein menu van zichzelf
+local UI = Terkan.ui()    -- of alleen de UI-bibliotheek, om een eigen menu te bouwen
+```
+
+Wil je een eigen menu maken? Begin met [`examples/my_menu.lua`](examples/my_menu.lua) en lees de [handleiding van TerkanUI](docs/UI.md). Alle namen die `Terkan.feature()` kent staan in [`features/README.md`](features/README.md) of via `Terkan.list()`.
+
+---
+
 ## Installeren
 
 Je hebt een Roblox-executor nodig met `loadstring`, `readfile`/`writefile` en `getgenv`.
@@ -69,7 +85,7 @@ local Terkan = loadstring(game:HttpGet("https://raw.githubusercontent.com/tygova
 
 De lijst komt uit `features/manifest.json`, dat `tools/build.py` schrijft, dus hij is altijd gelijk aan wat er echt staat.
 
-**Een eigen menu bouwen** kan met `Terkan.ui()`. [`examples/my_menu.lua`](examples/my_menu.lua) is een compleet voorbeeld van een klein venster met een schakelaar, twee schuiven, een knop met melding, een dropdown, een keybind en een kleurkiezer:
+**Een eigen menu bouwen** kan met `Terkan.ui()`, en [`docs/UI.md`](docs/UI.md) beschrijft alle opties en bedieningselementen. [`examples/my_menu.lua`](examples/my_menu.lua) is een compleet voorbeeld van een klein venster met een schakelaar, twee schuiven, een knop met melding, een dropdown, een keybind en een kleurkiezer:
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/tygovansteenpaalwork-gif/Roblox_lua_script/main/examples/my_menu.lua"))()
@@ -273,6 +289,7 @@ Het is dezelfde code als in de hub. `tools/build_features.py` knipt hem eruit, d
 | `src/` | De bron van de hub: één bestand per tab, in volgorde van de bestandsnaam. Hier pas je dingen aan. |
 | `features/` | Elke functie als eigen, los draaiend bestand (gegenereerd), met `README.md` en `manifest.json`. |
 | `tools/` | `build.py` (alles bouwen), `build_features.py`, `check.py` (compiler-controle) en `screenshot.ps1`. |
+| `docs/UI.md` | Handleiding van TerkanUI: venster, tabs, alle bedieningselementen, vlaggen, configs en meldingen. |
 | `examples/` | Voorbeelden van het gebruik van de library (`my_menu.lua`). |
 | `assets/tabs/` | De 15 schermafbeeldingen van het menu. |
 | `version.txt` | Het versienummer waarmee het menu controleert of er een update is. |
