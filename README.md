@@ -292,6 +292,7 @@ Het is dezelfde code als in de hub. `tools/build_features.py` knipt hem eruit, d
 | `docs/UI.md` | Handleiding van TerkanUI: venster, tabs, alle bedieningselementen, vlaggen, configs en meldingen. |
 | `examples/` | Voorbeelden van het gebruik van de library (`my_menu.lua`). |
 | `assets/tabs/` | De 15 schermafbeeldingen van het menu. |
+| `LICENSE` | De MIT-licentie. |
 | `version.txt` | Het versienummer waarmee het menu controleert of er een update is. |
 
 ---
@@ -364,6 +365,10 @@ U.Seen                    -- fouten die een feature heeft gemeld (elke fout maar
 - Eigenschappen van je karakter uitlezen en vervalsen (een *property spoof*) kan alleen met `hookmetamethod`, `getrawmetatable` of `debug.getmetatable`. Op de executor waarmee dit is getest ontbreken die functies, dus dat is niet gebouwd.
 
 ---
+
+## Licentie
+
+Dit project valt onder de [MIT-licentie](LICENSE): iedereen mag de code gebruiken, kopiëren, aanpassen en delen, ook in eigen projecten, zolang de licentietekst en de vermelding van de maker erbij blijven. Er zit geen enkele garantie op.
 
 ## Disclaimer
 
