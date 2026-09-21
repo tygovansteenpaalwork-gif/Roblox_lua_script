@@ -77,6 +77,7 @@ toggle(rageFilt, "Team Check", "RageTeam", true)
 toggle(rageFilt, "Dead Check", "RageDead", true)
 toggle(rageFilt, "Ignore Walls", "RageIgnoreWalls", false)
 toggle(rageFilt, "Skip ForceField", "RageNoFF", true)
+toggle(rageFilt, "Skip Invisible Rigs", "RageNoInvis", true)
 
 local RAGE_POSITIONS = { "Off", "Behind Target", "Above Target", "Below Target", "Orbit Target", "Strafe Target" }
 dropdown(rageMove, "Position", "RagePosition", RAGE_POSITIONS, "Off")
@@ -269,7 +270,7 @@ renderLast(function(dt)
     local t = selectTarget({
         Only = C.RageWho ~= RAGE_AUTO and C.RageWho or nil,
         FOV = C.RageFov > 0 and C.RageFov or nil, MaxDist = C.RageDist, MinDist = C.RageMinDist,
-        Team = C.RageTeam, NoFF = C.RageNoFF, Wall = not C.RageIgnoreWalls, AllowDead = not C.RageDead,
+        Team = C.RageTeam, NoFF = C.RageNoFF, NoInvis = C.RageNoInvis, Wall = not C.RageIgnoreWalls, AllowDead = not C.RageDead,
         Part = C.RagePart, Priority = C.RagePriority, Origin = cursorOrCenter(false),
         Sticky = keep and prev.plr or nil,
     })

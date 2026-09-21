@@ -426,7 +426,16 @@ local function candidateParts(plr, char, mode)
     }
 end
 
--- o: Only (player name: consider nobody else), Origin, FOV (px, nil = no limit), MaxDist, MinDist, Team, NoFF (skip ForceField), Wall, Part, Priority, Sticky (plr)
+-- True when every visible-capable body part is (almost) fully transparent: lobby / spectator / hidden rigs that
+-- belong to a player but are nothing you can actually hit. (A method on U: the main chunk has no free local slots.)
+function U.isInvisible(char)
+    for _, p in ipairs(char:GetChildren()) do
+        if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" and p.Transparency < 0.9 then return false end
+    end
+    return true
+end
+
+-- o: Only (player name: consider nobody else), Origin, FOV (px, nil = no limit), MaxDist, MinDist, Team, NoFF (skip ForceField), NoInvis (skip invisible rigs), Wall, Part, Priority, Sticky (plr)
 local function selectTarget(o)
     local c = cam()
     local origin = o.Origin or viewportCenter()
@@ -439,7 +448,8 @@ local function selectTarget(o)
             and not (C.ListOnlyBlack and anyBlack and not U.Black[plr.Name])
         if plr ~= lp and listed and (not o.Only or plr.Name == o.Only) then
             local char, hum, root = charOf(plr, o.AllowDead)
-            if char and not (o.Team and sameTeam(plr)) and not (o.NoFF and char:FindFirstChildOfClass("ForceField")) then
+            if char and not (o.Team and sameTeam(plr)) and not (o.NoFF and char:FindFirstChildOfClass("ForceField"))
+                and not (o.NoInvis and U.isInvisible(char)) then
                 local dist = (root.Position - camPos).Magnitude
                 if dist <= o.MaxDist and dist >= (o.MinDist or 0) then
                     for _, part in ipairs(candidateParts(plr, char, o.Part)) do
