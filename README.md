@@ -22,7 +22,7 @@ Terkan.feature("esp")     -- of maar één functie, in een klein menu van zichze
 local UI = Terkan.ui()    -- of alleen de UI-bibliotheek, om een eigen menu te bouwen
 ```
 
-Wil je een eigen menu maken? Begin met [`examples/my_menu.lua`](examples/my_menu.lua) en lees de [handleiding van TerkanUI](docs/UI.md). Alle namen die `Terkan.feature()` kent staan in [`features/README.md`](features/README.md) of via `Terkan.list()`.
+Wil je een eigen menu of hub maken? Begin met [`examples/my_menu.lua`](examples/my_menu.lua) (alleen een menu) of [`examples/my_hub.lua`](examples/my_hub.lua) (eigen tabs en functies met de hulpfuncties van de library), en lees de [handleiding van TerkanUI](docs/UI.md) en de [handleiding voor je eigen hub](docs/HUB.md). Alle namen die `Terkan.feature()` kent staan in [`features/README.md`](features/README.md) of via `Terkan.list()`.
 
 ---
 
@@ -80,6 +80,7 @@ local Terkan = loadstring(game:HttpGet("https://raw.githubusercontent.com/tygova
 | `Terkan.list()` | Alle beschikbare functienamen, alfabetisch. |
 | `Terkan.info("rage")` | `{ name, title, about, file }` van een functie. |
 | `Terkan.ui()` | Alleen de UI-bibliotheek, om een eigen menu te bouwen. |
+| `Terkan.core({ Name, Title })` | Een venster plus de hulpfuncties van de hub (doelwitten zoeken, instellingen, meldingen ...), om een eigen hub te bouwen. |
 | `Terkan.version()` | Het versienummer van de hub op GitHub. |
 | `Terkan.setBase(url)` | Wijs de loader naar een fork, een andere branch of een lokale webserver. |
 
@@ -289,8 +290,9 @@ Het is dezelfde code als in de hub. `tools/build_features.py` knipt hem eruit, d
 | `src/` | De bron van de hub: één bestand per tab, in volgorde van de bestandsnaam. Hier pas je dingen aan. |
 | `features/` | Elke functie als eigen, los draaiend bestand (gegenereerd), met `README.md` en `manifest.json`. |
 | `tools/` | `build.py` (alles bouwen), `build_features.py`, `check.py` (compiler-controle) en `screenshot.ps1`. |
+| `docs/HUB.md` | Handleiding voor een eigen hub: `Terkan.core()`, alle hulpfuncties en een eigen tab in de Terkan-hub. |
 | `docs/UI.md` | Handleiding van TerkanUI: venster, tabs, alle bedieningselementen, vlaggen, configs en meldingen. |
-| `examples/` | Voorbeelden van het gebruik van de library (`my_menu.lua`). |
+| `examples/` | Voorbeelden van het gebruik van de library (`my_menu.lua`, `my_hub.lua`). |
 | `assets/tabs/` | De 15 schermafbeeldingen van het menu. |
 | `LICENSE` | De MIT-licentie. |
 | `version.txt` | Het versienummer waarmee het menu controleert of er een update is. |

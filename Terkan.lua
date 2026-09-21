@@ -11,6 +11,7 @@
         Terkan.list()                -- { "aimbot", "anti_afk", ... }
         Terkan.info("rage")          -- { name, title, about, file }
         Terkan.ui()                  -- only the UI library, to build your own menu
+        Terkan.core({ Name = "myhub", Title = "My Hub" })   -- a window plus the helpers of the hub (docs/HUB.md)
         Terkan.version()             -- version of the hub on GitHub
 
     Point it at another copy of the repository (a fork, a branch, a local web server) with Terkan.setBase(url).
@@ -77,6 +78,14 @@ end
 function Terkan.hub()
     Terkan.ui()
     return run("TerkanUniversal.lua")
+end
+
+-- The shared core of the features: a window plus the helpers the hub is built with (toggle / slider / dropdown /
+-- keybind that fill the config table C, connect, onUnload, notify, charOf, selectTarget ...). Returns a table with
+-- all of them; see docs/HUB.md. opts = { Name = "myhub", Title = "My Hub" }
+function Terkan.core(opts)
+    Terkan.ui()
+    return run("features/_core.lua")(opts)
 end
 
 function Terkan.feature(name)
