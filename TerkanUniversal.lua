@@ -38,8 +38,39 @@ end
 local U = { Conns = {}, Binds = {}, Cleanups = {}, Running = true, White = {}, Black = {} }
 getgenv().__TerkanUniversal = U
 
+-- Everything we put somewhere a game script can look (Lighting, PlayerGui, bound actions) gets a random neutral name
+-- instead of "Terkan...", so a name-based scan finds nothing. (A method on U: the main chunk has no free local slots.)
+function U.rname()
+    local letters, out = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", {}
+    for i = 1, math.random(8, 12) do
+        local k = math.random(1, #letters)
+        out[i] = letters:sub(k, k)
+    end
+    return table.concat(out)
+end
+U.FreecamAction = U.rname()
+U.Version = "2.1.0"   -- also in version.txt on GitHub: the menu compares the two at startup
+
+-- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
+-- Every connection, render step and menu callback goes through U.Guard.
+U.Seen = {}
+function U.Report(err)
+    local msg = tostring(err)
+    if U.Seen[msg] then return end
+    U.Seen[msg] = true
+    warn("[Terkan] " .. msg)
+    if U.Notify then U.Notify("Script error", msg:sub(1, 170), "error") end
+end
+function U.Guard(fn)
+    return function(...)
+        local ok, err = pcall(fn, ...)
+        if not ok then U.Report(err) end
+    end
+end
+UI.OnError = U.Report
+
 local function connect(signal, fn)
-    local c = signal:Connect(fn)
+    local c = signal:Connect(U.Guard(fn))
     table.insert(U.Conns, c)
     return c
 end
@@ -50,7 +81,7 @@ local bindCounter = 0
 local function renderLast(fn)
     bindCounter += 1
     local name = "TerkanU_" .. bindCounter
-    RunService:BindToRenderStep(name, Enum.RenderPriority.Last.Value, fn)
+    RunService:BindToRenderStep(name, Enum.RenderPriority.Last.Value, U.Guard(fn))
     table.insert(U.Binds, name)
 end
 
@@ -58,7 +89,7 @@ end
 local function renderFirst(fn)
     bindCounter += 1
     local name = "TerkanU_" .. bindCounter
-    RunService:BindToRenderStep(name, Enum.RenderPriority.First.Value, fn)
+    RunService:BindToRenderStep(name, Enum.RenderPriority.First.Value, U.Guard(fn))
     table.insert(U.Binds, name)
 end
 
@@ -86,7 +117,7 @@ U.C, U.TOG = C, TOG   -- exposed for self-tests
 
 local win = UI:Window({
     Title = "TERKAN",
-    Version = "V 2.0",
+    Version = "V " .. U.Version:match("^%d+%.%d+"),
     Footer = "Terkan Universal",
     ToggleKey = Enum.KeyCode.RightShift,
 })
@@ -186,7 +217,7 @@ U.Notify = notify   -- exposed for self-tests
 ----------------------------------------------------------------------
 
 local overlay = Instance.new("ScreenGui")
-overlay.Name = "TerkanOverlay"
+overlay.Name = U.rname()
 overlay.ResetOnSpawn = false
 overlay.IgnoreGuiInset = true
 overlay.DisplayOrder = 9000
@@ -1312,7 +1343,7 @@ local STYLE_PARTS = {
 }
 
 local curRoot = Instance.new("Frame")
-curRoot.Name = "TerkanCursor"
+curRoot.Name = U.rname()
 curRoot.AnchorPoint = Vector2.new(0.5, 0.5)
 curRoot.BackgroundTransparency = 1
 curRoot.Size = UDim2.fromOffset(0, 0)
@@ -1560,7 +1591,7 @@ slider(espCol, "Chams Transparency", "ESPFillTrans", 0, 1, 0.55, { Decimals = 2 
 slider(espCol, "Tracer Width", "ESPTracerWidth", 1, 6, 1.5, { Decimals = 1, Suffix = " px" })
 
 local espRoot = Instance.new("Folder")
-espRoot.Name = "TerkanESP"
+espRoot.Name = U.rname()
 espRoot.Parent = parentGui()
 onUnload(function() espRoot:Destroy() end)
 
@@ -1951,11 +1982,11 @@ local function preset() return PRESETS[C.ShLook] or PRESETS.Vivid end
 local cc, bloom, sun, dof
 
 local function ensureFx()
-    if not (cc and cc.Parent) then cc = Instance.new("ColorCorrectionEffect") cc.Name = "TerkanShaderCC" cc.Parent = Lighting end
-    if not (bloom and bloom.Parent) then bloom = Instance.new("BloomEffect") bloom.Name = "TerkanShaderBloom" bloom.Size = 24 bloom.Threshold = 0.9 bloom.Parent = Lighting end
-    if not (sun and sun.Parent) then sun = Instance.new("SunRaysEffect") sun.Name = "TerkanShaderSun" sun.Spread = 0.7 sun.Parent = Lighting end
+    if not (cc and cc.Parent) then cc = Instance.new("ColorCorrectionEffect") cc.Name = U.rname() cc.Parent = Lighting end
+    if not (bloom and bloom.Parent) then bloom = Instance.new("BloomEffect") bloom.Name = U.rname() bloom.Size = 24 bloom.Threshold = 0.9 bloom.Parent = Lighting end
+    if not (sun and sun.Parent) then sun = Instance.new("SunRaysEffect") sun.Name = U.rname() sun.Spread = 0.7 sun.Parent = Lighting end
     if not (dof and dof.Parent) then
-        dof = Instance.new("DepthOfFieldEffect") dof.Name = "TerkanShaderDof"
+        dof = Instance.new("DepthOfFieldEffect") dof.Name = U.rname()
         dof.NearIntensity, dof.FocusDistance, dof.InFocusRadius = 0, 60, 40
         dof.Parent = Lighting
     end
@@ -2158,31 +2189,29 @@ local function myHumanoid()
 end
 
 local orig = {}
-toggle(move, "Speed", "SpeedEnabled", false, function(v)
-    local hum = myHumanoid()
-    if not hum then return end
-    if v then orig.speed = hum.WalkSpeed
-    elseif orig.speed then hum.WalkSpeed = orig.speed orig.speed = nil end
-end)
+-- Speed and Jump do NOT touch WalkSpeed / JumpPower (those properties replicate, so a game can read the changed value):
+-- the extra speed is added by moving the character (see CFrame Speed further down), the jump by a velocity kick.
+toggle(move, "Speed", "SpeedEnabled", false)
 slider(move, "Walk Speed", "SpeedValue", 16, 300, 60, { Suffix = "" })
 
-toggle(move, "Jump Power", "JumpEnabled", false, function(v)
-    local hum = myHumanoid()
-    if not hum then return end
-    if v then
-        orig.useJumpPower, orig.jumpPower = hum.UseJumpPower, hum.JumpPower
-    elseif orig.jumpPower then
-        hum.UseJumpPower = orig.useJumpPower
-        hum.JumpPower = orig.jumpPower
-        orig.jumpPower = nil
-    end
-end)
+toggle(move, "Jump Power", "JumpEnabled", false)
 slider(move, "Jump Value", "JumpValue", 20, 300, 80)
 toggle(move, "Infinite Jump", "InfJump", false)
 connect(UserInputService.JumpRequest, function()
     if not C.InfJump then return end
     local hum = myHumanoid()
     if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+end)
+connect(UserInputService.JumpRequest, function()
+    if not (C.JumpEnabled and U.Running) then return end
+    RunService.Heartbeat:Wait()   -- after the humanoid has given its own normal jump
+    local hum, root = myHumanoid()
+    if not (hum and root) then return end
+    local state = hum:GetState()
+    if state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall then
+        local v = root.AssemblyLinearVelocity
+        if v.Y < C.JumpValue then root.AssemblyLinearVelocity = Vector3.new(v.X, C.JumpValue, v.Z) end
+    end
 end)
 
 toggle(move, "Anti Stun", "AntiStun", false, function(v)
@@ -2196,10 +2225,11 @@ end)
 
 -- fly ------------------------------------------------------------------
 
-local flyState = {}
+-- Flying is done by setting the root's velocity every frame (no BodyVelocity / BodyGyro objects inside the character,
+-- which is the first thing an anti-fly check looks for). Gravity is cancelled by adding half a frame of it back.
+local flyState = { vel = Vector3.zero }
 local function stopFly()
-    if flyState.bv then flyState.bv:Destroy() flyState.bv = nil end
-    if flyState.bg then flyState.bg:Destroy() flyState.bg = nil end
+    flyState.vel = Vector3.zero
     local hum = myHumanoid()
     if hum then hum.PlatformStand = false end
 end
@@ -2216,18 +2246,6 @@ renderLast(function(dt)
     local hum, root = myHumanoid()
     if not hum or not root then return end
 
-    if not (flyState.bv and flyState.bv.Parent) then
-        stopFly()
-        flyState.bv = Instance.new("BodyVelocity")
-        flyState.bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-        flyState.bv.Velocity = Vector3.zero
-        flyState.bv.Parent = root
-        flyState.bg = Instance.new("BodyGyro")
-        flyState.bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-        flyState.bg.P = 1e5
-        flyState.bg.CFrame = root.CFrame
-        flyState.bg.Parent = root
-    end
     hum.PlatformStand = true
 
     local look = cam().CFrame
@@ -2243,10 +2261,13 @@ renderLast(function(dt)
     local want = dir.Magnitude > 0 and dir.Unit * C.FlySpeed or Vector3.zero
     if C.FlySmooth > 0 then
         -- frame-rate independent glide: 0% = instant, 95% = very floaty
-        want = flyState.bv.Velocity:Lerp(want, 1 - (C.FlySmooth / 100) ^ (math.min(dt, 0.1) * 60))
+        want = flyState.vel:Lerp(want, 1 - (C.FlySmooth / 100) ^ (math.min(dt, 0.1) * 60))
     end
-    flyState.bv.Velocity = want
-    flyState.bg.CFrame = CFrame.lookAt(root.Position, root.Position + Vector3.new(look.LookVector.X, 0, look.LookVector.Z))
+    flyState.vel = want
+    root.AssemblyLinearVelocity = want + Vector3.new(0, workspace.Gravity * math.min(dt, 0.1) * 0.5, 0)
+    root.AssemblyAngularVelocity = Vector3.zero
+    local flat = Vector3.new(look.LookVector.X, 0, look.LookVector.Z)
+    if flat.Magnitude > 0.01 then root.CFrame = CFrame.lookAt(root.Position, root.Position + flat) end
 end)
 onUnload(stopFly)
 
@@ -2283,18 +2304,8 @@ renderLast(function()
     local hum, root = myHumanoid()
     if not hum then return end
 
-    if C.SpeedEnabled then
-        hum.WalkSpeed = C.SpeedValue
-    elseif hum.WalkSpeed > 0 then
-        lastGoodSpeed = hum.WalkSpeed
-    end
-
-    if C.JumpEnabled then
-        hum.UseJumpPower = true
-        hum.JumpPower = C.JumpValue
-    elseif hum.JumpPower > 0 then
-        lastGoodJump = hum.JumpPower
-    end
+    if hum.WalkSpeed > 0 then lastGoodSpeed = hum.WalkSpeed end
+    if hum.JumpPower > 0 then lastGoodJump = hum.JumpPower end
 
     if C.AntiStun and not C.FlyEnabled and not C.SuperFly and not C.LayDown then
         if hum.PlatformStand then hum.PlatformStand = false end
@@ -2303,8 +2314,8 @@ renderLast(function()
             or state == Enum.HumanoidStateType.Physics then
             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
-        if hum.WalkSpeed < 1 then hum.WalkSpeed = C.SpeedEnabled and C.SpeedValue or lastGoodSpeed end
-        if hum.UseJumpPower and hum.JumpPower < 1 then hum.JumpPower = C.JumpEnabled and C.JumpValue or lastGoodJump end
+        if hum.WalkSpeed < 1 then hum.WalkSpeed = lastGoodSpeed end
+        if hum.UseJumpPower and hum.JumpPower < 1 then hum.JumpPower = lastGoodJump end
         if root and root.Anchored then root.Anchored = false end
 
         -- ragdoll systems break the joints; re-enable them (scanned 4x a second, not every frame)
@@ -2433,10 +2444,10 @@ renderLast(function()
         end
     end
     if ragged or stunned then
-        if hum.WalkSpeed < 1 then hum.WalkSpeed = C.SpeedEnabled and C.SpeedValue or ragSpeed end
+        if hum.WalkSpeed < 1 then hum.WalkSpeed = ragSpeed end
         if hum.JumpPower < 1 then
             hum.UseJumpPower = true
-            hum.JumpPower = C.JumpEnabled and C.JumpValue or ragJump
+            hum.JumpPower = ragJump
         end
     end
 end)
@@ -3474,6 +3485,7 @@ local pnch = flingTab:Section("Punch Fling")
 
 -- Roblox's own tool swings (they load everywhere); the game's own animations are added by the scan buttons
 -- The Strongest Battlegrounds: the four M1 hits of "Normal Punch" (R6, game animations, seen by everybody; checked)
+local IN_TSB = game.PlaceId == 10449761463   -- The Strongest Battlegrounds (also its private servers)
 local PUNCH_TSB = "Normal Punch (TSB)"
 local PUNCH_TSB_MOVE = "Normal Punch Ability (TSB)"
 local TSB_M1 = { 10469493270, 10469630950, 10469639222, 10469643643 }
@@ -3492,7 +3504,13 @@ local PUNCH_WORDS = { "punch", "m1", "attack", "hit", "strike", "combat", "melee
 local gameAnims = {}   -- dropdown label -> animation id, found in the game
 
 local function punchOptions()
-    local list = { PUNCH_TSB_MOVE, PUNCH_TSB, "Hand Slam", "Lunge (thrust)", "Slash (swing)", PUNCH_COMBO, PUNCH_NONE }
+    -- the two TSB animations are game-owned: they only exist in the list (and only work) inside TSB
+    local list = {}
+    if IN_TSB then
+        table.insert(list, PUNCH_TSB_MOVE)
+        table.insert(list, PUNCH_TSB)
+    end
+    for _, name in ipairs({ "Hand Slam", "Lunge (thrust)", "Slash (swing)", PUNCH_COMBO, PUNCH_NONE }) do table.insert(list, name) end
     local extra = {}
     for label in pairs(gameAnims) do table.insert(extra, label) end
     table.sort(extra)
@@ -3532,6 +3550,7 @@ end
 local function playPunchAnim()
     local pick = C.PunchAnim
     if pick == PUNCH_NONE then return end
+    if not IN_TSB and (pick == PUNCH_TSB or pick == PUNCH_TSB_MOVE) then pick = "Hand Slam" end   -- e.g. from a config saved in TSB
     if pick == PUNCH_COMBO then   -- every punch plays the next animation of the list
         local pool = {}
         for _, option in ipairs(punchOptions()) do
@@ -3652,7 +3671,7 @@ U.Punch = punch   -- exposed for self-tests
 toggle(pnch, "Punch Fling", "PunchOn", false)
 keybind(pnch, "Punch Key", "BindPunch", nil, function() if C.PunchOn then punch() end end)
 toggle(pnch, "Punch On Left Click", "PunchClick", false)
-punchDD = dropdown(pnch, "Animation", "PunchAnim", punchOptions(), game.PlaceId == 10449761463 and PUNCH_TSB_MOVE or "Hand Slam")
+punchDD = dropdown(pnch, "Animation", "PunchAnim", punchOptions(), IN_TSB and PUNCH_TSB_MOVE or "Hand Slam")
 pnch:Button({ Text = "Scan Game Animations", Callback = function() scanGameAnims(false) end })
 pnch:Button({ Text = "Scan All Game Animations", Callback = function() scanGameAnims(true) end })
 slider(pnch, "Reach", "PunchReach", 3, 25, 8, { Suffix = " st" })
@@ -4136,7 +4155,7 @@ poseSec:Button({ Text = "Stop All Animations", Callback = function()
 end })
 
 -- superman fly (FE) --------------------------------------------------------
--- Flies where the camera looks with real physics (BodyVelocity + BodyGyro, like the normal Fly), so walls and
+-- Flies where the camera looks with real physics (the root's velocity, like the normal Fly), so walls and
 -- floors stop you smoothly instead of rubber-banding. Moving = the Superman pose: body turned horizontal (head
 -- first, belly down) with the default Roblox Cheer animation raising both arms. Standing still = Hover: upright,
 -- floating with Roblox's Levitation idle animation and a slow bob. Everything is your own character (root
@@ -4144,16 +4163,20 @@ end })
 local superSec = funTab:Section("Superman Fly")
 local superTracks = {}          -- "fly" / "hover" -> AnimationTrack
 local superMode                 -- which of the two is showing
-local superBV, superBG
 local superRot = CFrame.new()   -- smoothed orientation
 local superVel = Vector3.zero
 local superMovedAt = 0
 local superSaved
-local POSE_IDS = {
-    fly   = { R15 = 507770677,   R6 = 129423030 },   -- Cheer (frozen at the moment both arms are up)
-    hover = { R15 = 10921132962 },                   -- Levitation idle (R15 only)
+local superReady = false   -- orientation state was taken from the character
+-- Which animation gives the best "both arms forward" is MEASURED once per rig (R6 and R15 have different animations):
+-- every candidate is scrubbed through its frames and the arm directions are compared with the direction of the head.
+local FLY_CANDIDATES = {
+    R15 = { 507770677, 507765000, 507765644, 10921294559, 10921293373, 10921137402 },   -- Cheer, Jump, Climb, Superhero Jump / Fall, Levitation Jump
+    R6  = { 129423030, 125750702, 180436334, 128777973, 180436148 },                    -- Cheer, Jump, Climb, Wave, Fall
 }
-local CHEER_HOLD = 1.0
+local HOVER_IDS = { R15 = 10921132962, R6 = 180436148 }   -- Levitation idle / the R6 fall pose
+local poseCache = {}        -- "R6" / "R15" -> { id, hold, loops, score } or false when nothing worked
+local poseBusy = false
 
 local function superClearTracks()
     for name, track in pairs(superTracks) do
@@ -4165,9 +4188,8 @@ end
 
 local function superStop()
     superClearTracks()
-    if superBV then superBV:Destroy() superBV = nil end
-    if superBG then superBG:Destroy() superBG = nil end
     superVel = Vector3.zero
+    superReady = false
     if superSaved then
         for part, was in pairs(superSaved) do
             if part.Parent then part.CanCollide = was end
@@ -4186,6 +4208,63 @@ local function superStop()
     end
 end
 
+-- how far both arms point along the body's head direction (1 = straight up over the head), whatever way the body is turned
+local function armAlignment(char)
+    local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+    local l = char:FindFirstChild("LeftUpperArm") or char:FindFirstChild("Left Arm")
+    local r = char:FindFirstChild("RightUpperArm") or char:FindFirstChild("Right Arm")
+    if not (torso and l and r) then return end
+    local up = torso.CFrame.UpVector
+    return math.min((-l.CFrame.UpVector):Dot(up), (-r.CFrame.UpVector):Dot(up))
+end
+
+local function calibratePose(hum)
+    local rigKey = hum.RigType == Enum.HumanoidRigType.R6 and "R6" or "R15"
+    local animator, char = hum:FindFirstChildOfClass("Animator"), hum.Parent
+    if not animator then return end
+    poseBusy = true
+    notify("Superman Fly", "Finding the best arm pose for your character (a few seconds, once)", nil, "misc")
+    local best
+    for _, id in ipairs(FLY_CANDIDATES[rigKey]) do
+        if not (C.SuperFly and U.Running) then poseBusy = false return end
+        local anim = Instance.new("Animation")
+        anim.AnimationId = "rbxassetid://" .. id
+        local ok, track = pcall(function() return animator:LoadAnimation(anim) end)
+        anim:Destroy()
+        if ok and track then
+            local t0 = os.clock()
+            while track.Length == 0 and os.clock() - t0 < 1.5 do task.wait() end
+            local len = track.Length
+            if len > 0 then
+                track.Priority = Enum.AnimationPriority.Action4
+                track.Looped = true
+                track:Play(0, 1, 0)
+                local bestS, bestT, minS = -2, 0, 2
+                for i = 0, 16 do
+                    local t = len * i / 16 * 0.999
+                    track.TimePosition = t
+                    RunService.RenderStepped:Wait()
+                    RunService.Heartbeat:Wait()
+                    local score = char.Parent and armAlignment(char)
+                    if score then
+                        if score > bestS then bestS, bestT = score, t end
+                        minS = math.min(minS, score)
+                    end
+                end
+                if not best or bestS > best.score then best = { id = id, hold = bestT, score = bestS, loops = minS >= 0.8 } end
+            end
+            pcall(function() track:Stop(0) track:Destroy() end)
+        end
+    end
+    poseCache[rigKey] = best or false
+    poseBusy = false
+    if best then
+        notify("Superman Fly", ("Arm pose found (%d%% straight)"):format(math.floor(best.score * 100)), "success", "misc")
+    else
+        notify("Superman Fly", "No arm pose worked for this character - you fly without one", "warn")
+    end
+end
+
 -- crossfade to the pose for `mode`
 local function superSetMode(hum, mode)
     if superMode == mode then
@@ -4194,12 +4273,27 @@ local function superSetMode(hum, mode)
     end
     local animator = hum:FindFirstChildOfClass("Animator")
     if not animator then return end
+    local rigKey = hum.RigType == Enum.HumanoidRigType.R6 and "R6" or "R15"
+
+    local id, freeze, holdAt
+    if mode == "fly" then
+        local pose = poseCache[rigKey]
+        if pose == nil then
+            if not poseBusy then task.spawn(calibratePose, hum) end
+            return   -- flying already works, the pose follows in a moment
+        end
+        if not pose then superMode = mode return end
+        id, holdAt = pose.id, pose.hold
+        freeze = C.SuperFreeze and not pose.loops   -- a pose that keeps the arms up all the time needs no freezing
+    else
+        id = HOVER_IDS[rigKey]
+    end
+    if not id then superMode = mode return end
+
     local other = superTracks[mode == "fly" and "hover" or "fly"]
     if other then pcall(function() other:Stop(0.25) end) end
     local track = superTracks[mode]
     if not track then
-        local id = POSE_IDS[mode][hum.RigType == Enum.HumanoidRigType.R6 and "R6" or "R15"]
-        if not id then superMode = mode return end   -- no such pose for this rig
         local anim = Instance.new("Animation")
         anim.AnimationId = "rbxassetid://" .. id
         local ok, loaded = pcall(function() return animator:LoadAnimation(anim) end)
@@ -4210,11 +4304,12 @@ local function superSetMode(hum, mode)
         track = loaded
         superTracks[mode] = track
     end
-    local freeze = mode == "fly" and C.SuperFreeze
     track:Play(0.25, 1, freeze and 0 or 1)
-    if freeze then track.TimePosition = CHEER_HOLD end   -- stay in the "both arms forward" moment
+    if freeze then track.TimePosition = holdAt end   -- stay in the moment where both arms point forward
     superMode = mode
 end
+
+U.SuperDebug = function() return { pose = poseCache, mode = superMode, busy = poseBusy } end   -- exposed for self-tests
 
 toggle(superSec, "Superman Fly", "SuperFly", false, function(v)
     if not v then superStop() end
@@ -4239,19 +4334,8 @@ connect(RunService.Heartbeat, function(dt)
     if not (hum and root) then return end
     hum.PlatformStand = true
 
-    if not (superBV and superBV.Parent == root) then
-        if superBV then superBV:Destroy() end
-        if superBG then superBG:Destroy() end
-        superBV = Instance.new("BodyVelocity")
-        superBV.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-        superBV.Velocity = Vector3.zero
-        superBV.Parent = root
-        superBG = Instance.new("BodyGyro")
-        superBG.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-        superBG.P = 1e5
-        superBG.D = 1e3
-        superBG.CFrame = root.CFrame
-        superBG.Parent = root
+    if not superReady then
+        superReady = true
         superRot = root.CFrame.Rotation
     end
 
@@ -4282,7 +4366,6 @@ connect(RunService.Heartbeat, function(dt)
     local want = moving and dir.Unit * C.SuperSpeed or Vector3.zero
     if hovering then want = Vector3.new(0, math.sin(os.clock() * 2) * 1.2, 0) end   -- slow bob
     superVel = superVel:Lerp(want, 1 - 0.002 ^ math.min(dt, 0.1))   -- a short glide instead of a hard stop
-    superBV.Velocity = superVel
 
     local target
     if hovering then
@@ -4298,7 +4381,10 @@ connect(RunService.Heartbeat, function(dt)
         target = CFrame.fromMatrix(Vector3.zero, head:Cross(back), head, back)
     end
     superRot = superRot:Lerp(target, math.clamp(dt * 8, 0, 1))
-    superBG.CFrame = CFrame.new(root.Position) * superRot
+    -- no BodyVelocity / BodyGyro: velocity and orientation are set on the root itself every frame
+    root.AssemblyLinearVelocity = superVel + Vector3.new(0, workspace.Gravity * math.min(dt, 0.1) * 0.5, 0)
+    root.AssemblyAngularVelocity = Vector3.zero
+    root.CFrame = CFrame.new(root.Position) * superRot
 
     superSetMode(hum, hovering and "hover" or "fly")
 end)
@@ -4484,7 +4570,7 @@ local function skyOn()
         end
         if not skyObj then
             skyObj = Instance.new("Sky")
-            skyObj.Name = "TerkanSky"
+            skyObj.Name = U.rname()
         end
         skyObj.StarCount = 0
         for prop, asset in pairs(textures) do skyObj[prop] = asset end
@@ -4724,7 +4810,7 @@ local FC_KEYS = {
 local fc = { pos = Vector3.zero, yaw = 0, pitch = 0, saved = nil }
 
 local function fcStop()
-    ContextActionService:UnbindAction("TerkanFreecam")
+    ContextActionService:UnbindAction(U.FreecamAction)
     UserInputService.MouseBehavior = Enum.MouseBehavior.Default
     local c = cam()
     if c and fc.saved then
@@ -4742,7 +4828,7 @@ toggle(camSec, "Freecam", "Freecam", false, function(v)
     fc.saved = { Type = c.CameraType, Subject = c.CameraSubject }
     fc.pos = c.CFrame.Position
     fc.pitch, fc.yaw = c.CFrame:ToOrientation()
-    ContextActionService:BindActionAtPriority("TerkanFreecam", function() return Enum.ContextActionResult.Sink end,
+    ContextActionService:BindActionAtPriority(U.FreecamAction, function() return Enum.ContextActionResult.Sink end,
         false, Enum.ContextActionPriority.High.Value, table.unpack(FC_KEYS))
 end)
 slider(camSec, "Freecam Speed", "FreecamSpeed", 5, 300, 40, { Suffix = " st/s" })
@@ -4868,7 +4954,7 @@ onUnload(destroyHud)
 
 local function buildHud()
     hudGui = Instance.new("ScreenGui")
-    hudGui.Name = "TerkanStats"
+    hudGui.Name = U.rname()
     hudGui.ResetOnSpawn = false
     hudGui.IgnoreGuiInset = true
     hudGui.DisplayOrder = 100
@@ -5040,11 +5126,13 @@ renderLast(function(dt)
     end
     flyPos = nil
 
-    if C.CfSpeed then
-        local held = not C.CfSpeedHold or (BIND.CfSpeedKey and BIND.CfSpeedKey:IsDown())
+    local plainSpeed = (C.SpeedEnabled and not C.CfSpeed) and math.max(C.SpeedValue - 16, 0) or 0   -- the Movement tab's Speed
+    if C.CfSpeed or plainSpeed > 0 then
+        local held = plainSpeed > 0 or not C.CfSpeedHold or (BIND.CfSpeedKey and BIND.CfSpeedKey:IsDown())
         local dir = hum.MoveDirection
         if not held or (C.CfGroundOnly and hum.FloorMaterial == Enum.Material.Air) then dir = Vector3.zero end
-        local speed = C.CfSpeedValue * ((BIND.CfSprintKey and BIND.CfSprintKey:IsDown()) and C.CfSprint or 1)
+        local speed = plainSpeed > 0 and plainSpeed
+            or C.CfSpeedValue * ((BIND.CfSprintKey and BIND.CfSprintKey:IsDown()) and C.CfSprint or 1)
         walkVel = smooth(walkVel, dir * speed, dt)
         if walkVel.Magnitude > 0.05 then
             local move = walkVel * dt
@@ -5445,7 +5533,7 @@ onUnload(destroyChat)
 local function buildChat()
     readMenuColors()
     chatGui = Instance.new("ScreenGui")
-    chatGui.Name = "TerkanChat"
+    chatGui.Name = U.rname()
     chatGui.ResetOnSpawn = false
     chatGui.IgnoreGuiInset = true
     chatGui.DisplayOrder = 99
@@ -5788,10 +5876,10 @@ slider(menuSec, "UI Scale", "UiScale", 0.6, 1.4, 1, { Decimals = 2, OnChange = f
     toggle(menuSec, "Free Mouse When Menu Open", "FreeMouse", true)
 
     local modalGui = Instance.new("ScreenGui")
-    modalGui.Name = "TerkanFreeMouse"
+    modalGui.Name = U.rname()
     modalGui.ResetOnSpawn = false
     modalGui.DisplayOrder = 1
-    modalGui.Parent = lp:WaitForChild("PlayerGui")
+    modalGui.Parent = parentGui()   -- not PlayerGui: a game script could see it there
     local modal = Instance.new("TextButton")
     modal.Size = UDim2.fromOffset(2, 2)
     modal.BackgroundTransparency = 1
@@ -5819,7 +5907,7 @@ slider(menuSec, "UI Scale", "UiScale", 0.6, 1.4, 1, { Decimals = 2, OnChange = f
     end
     bindCounter += 1
     local name = "TerkanU_" .. bindCounter
-    RunService:BindToRenderStep(name, Enum.RenderPriority.Last.Value + 1, frame)   -- after the custom cursor code
+    RunService:BindToRenderStep(name, Enum.RenderPriority.Last.Value + 1, U.Guard(frame))   -- after the custom cursor code
     table.insert(U.Binds, name)
 end)()
 
@@ -5875,7 +5963,40 @@ task.defer(function()
     U.LoadingConfig = true
     local ok, res = win:LoadAutoload()
     if ok then notify("Terkan", "Autoload config applied", "success")
-    else notify("Terkan", "Universal loaded - " .. tostring(win.ToggleKey.Name) .. " toggles the menu") end
+    else
+        notify("Terkan", "Universal loaded - " .. tostring(win.ToggleKey.Name) .. " toggles the menu")
+        -- no autoload config of your own: start with the settings that suit this game (a saved config always wins)
+        local GAME_PROFILES = {
+            [10449761463] = { name = "The Strongest Battlegrounds", flags = { PunchOn = true, PunchAnim = "Normal Punch Ability (TSB)" } },
+        }
+        local profile = GAME_PROFILES[game.PlaceId]
+        if profile then
+            for flag, value in pairs(profile.flags) do
+                local entry = win.Flags[flag]
+                if entry then pcall(entry.Set, value, false) end
+            end
+            notify("Terkan", profile.name .. " profile applied (Punch Fling is on)", "success", "startup")
+        end
+    end
+
+    -- newer version on GitHub? (a tiny version.txt; a failed request is simply ignored)
+    task.spawn(function()
+        local fine, body = pcall(function()
+            return game:HttpGet("https://raw.githubusercontent.com/tygovansteenpaalwork-gif/Roblox_lua_script/main/version.txt")
+        end)
+        local remote = fine and type(body) == "string" and body:match("(%d+)%.(%d+)%.(%d+)") and body:match("%d+%.%d+%.%d+")
+        if not remote then return end
+        local function parts(v) local a, b, c = v:match("(%d+)%.(%d+)%.(%d+)") return { tonumber(a), tonumber(b), tonumber(c) } end
+        local r, l = parts(remote), parts(U.Version)
+        for i = 1, 3 do
+            if r[i] ~= l[i] then
+                if r[i] > l[i] then
+                    notify("Update", ("Version %s is out (you have %s) - run your loader again"):format(remote, U.Version), nil, "startup")
+                end
+                break
+            end
+        end
+    end)
     task.delay(0.8, function()
         U.LoadingConfig = false
         U.Ready = true          -- from here on, switching a feature may notify

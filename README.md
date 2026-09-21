@@ -171,12 +171,27 @@ Elke toets is aan te passen in het menu. Met `Backspace` wis je een bind en met 
 
 ---
 
+## Losse functies (`features/`)
+
+Elke functie staat ook als **bestand op eigen naam** in [`features/`](features/README.md), zodat je gewoon kunt zoeken op bijvoorbeeld `desync`, `fly`, `superman_fly`, `custom_skybox`, `punch_fling` of `telekinesis`. Elk bestand draait **op zichzelf**: het opent een klein menu met alleen die functie.
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/tygovansteenpaalwork-gif/Roblox_lua_script/main/features/desync.lua"))()
+```
+
+Het is dezelfde code als in de hub. `tools/build_features.py` knipt hem eruit, dus de bestanden veranderen mee met elke update van `TerkanUniversal.lua`: pas de hub aan, voer `python tools/build_features.py` uit en commit. `features/_core.lua` bevat de gedeelde hulpfuncties. Functies die bij elkaar horen staan samen in één bestand (Void Spam zit in `fling.lua`, Anti Aim in `desync.lua`, CFrame Fly en Dash in `cframe_speed.lua`); die hebben ook een klein bestand op eigen naam dat ernaar verwijst.
+
+---
+
 ## Bestanden
 
 | Bestand | Wat het is |
 | --- | --- |
 | `TerkanUI.lua` | De UI-bibliotheek: venster, tabs, secties, schakelaars, schuiven, dropdowns, kleurkiezers, keybinds, configs, thema's en meldingen. |
 | `TerkanUniversal.lua` | De hub zelf. Heeft `TerkanUI.lua` nodig. |
+| `features/` | Elke functie als eigen, los draaiend bestand, met een index in `features/README.md`. |
+| `tools/build_features.py` | Maakt `features/` uit de hub. `tools/check_features.py` controleert ze met de Luau-compiler. |
+| `version.txt` | Het versienummer waarmee het menu controleert of er een update is. |
 
 ---
 

@@ -120,6 +120,16 @@ local function applyFont(inst, weight)
     end
 end
 
+-- random neutral name for anything a game script could look at (see the same helper in TerkanUniversal)
+local function randomName()
+    local letters, out = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", {}
+    for i = 1, math.random(8, 12) do
+        local k = math.random(1, #letters)
+        out[i] = letters:sub(k, k)
+    end
+    return table.concat(out)
+end
+
 local function new(class, props, parent)
     local inst = Instance.new(class)
     for k, v in pairs(props or {}) do
@@ -208,6 +218,16 @@ end
 ----------------------------------------------------------------------
 
 local TerkanUI = {}
+
+-- Every element callback runs inside this guard: an error is reported once through TerkanUI.OnError (the hub shows it
+-- as a notification) instead of vanishing into the console.
+local function guardCallback(cb)
+    if not cb then return nil end
+    return function(...)
+        local ok, err = pcall(cb, ...)
+        if not ok then (TerkanUI.OnError or warn)(err) end
+    end
+end
 TerkanUI.__index = TerkanUI
 
 local Window  = {}; Window.__index  = Window
@@ -244,7 +264,7 @@ function TerkanUI:Window(options)
 
     -- screen gui -----------------------------------------------------
     local gui = new("ScreenGui", {
-        Name = "TerkanUI_" .. tostring(math.random(1e5, 1e6)),
+        Name = randomName(),
         ResetOnSpawn = false,
         IgnoreGuiInset = true,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
@@ -596,7 +616,7 @@ function Window:_updateBlur()
     local want = self.BlurEnabled and self.Main and self.Main.Visible
     if want then
         if not self.Blur then
-            self.Blur = new("BlurEffect", { Name = "TerkanBlur", Size = 0 }, Lighting)
+            self.Blur = new("BlurEffect", { Name = randomName(), Size = 0 }, Lighting)
         end
         tween(self.Blur, { Size = self.BlurSize }, 0.2)
     elseif self.Blur then
@@ -980,7 +1000,7 @@ end
 
 function Section:Button(a, ...)
     local o = cfg(a, ...)
-    local callback = o.Callback or (o._positional and o._positional[1])
+    local callback = guardCallback(o.Callback or (o._positional and o._positional[1]))
 
     local row = self:_row(Sizes.Row)
     local btn = new("TextButton", {
@@ -1023,7 +1043,7 @@ function Section:Toggle(a, ...)
         default, callback = o._positional[1], o._positional[2]
     end
     default = (o.Default ~= nil) and o.Default or default or false
-    callback = o.Callback or callback
+    callback = guardCallback(o.Callback or callback)
 
     local row = self:_row(26)
     local lbl = text(row, o.Text or "Toggle", 14, Theme.Text, Enum.FontWeight.Regular)
@@ -1090,7 +1110,7 @@ function Section:Slider(a, ...)
     max      = o.Max or max or 100
     default  = (o.Default ~= nil) and o.Default or default or min
     decimals = o.Decimals or decimals or 0
-    callback = o.Callback or callback
+    callback = guardCallback(o.Callback or callback)
     local suffix = o.Suffix or ""
 
     local row = self:_row(Sizes.Slider)
@@ -1181,7 +1201,7 @@ function Section:TextBox(a, ...)
     end
     default     = o.Default or default or ""
     placeholder = o.Placeholder or placeholder or ""
-    callback    = o.Callback or callback
+    callback = guardCallback(o.Callback or callback)
 
     if o.Text then self:_fieldLabel(o.Text) end
 
@@ -1243,7 +1263,7 @@ function Section:Dropdown(a, ...)
     end
     options  = o.Options or options or {}
     default  = (o.Default ~= nil) and o.Default or default
-    callback = o.Callback or callback
+    callback = guardCallback(o.Callback or callback)
     local multi = o.Multi or false
 
     local win = self.Window
@@ -1521,8 +1541,8 @@ function Section:Keybind(a, ...)
     local default, callback
     if o._positional then default, callback = o._positional[1], o._positional[2] end
     default  = o.Default or default
-    callback = o.Callback or callback
-    local onChanged = o.OnChanged
+    callback = guardCallback(o.Callback or callback)
+    local onChanged = guardCallback(o.OnChanged)
     local win = self.Window
 
     local row = self:_row(26)
@@ -1602,7 +1622,7 @@ function Section:ColorPicker(a, ...)
     local default, callback
     if o._positional then default, callback = o._positional[1], o._positional[2] end
     default  = o.Default or default or Color3.fromRGB(255, 255, 255)
-    callback = o.Callback or callback
+    callback = guardCallback(o.Callback or callback)
     local win = self.Window
 
     local row = self:_row(26)
