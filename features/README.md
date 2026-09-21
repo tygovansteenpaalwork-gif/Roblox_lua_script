@@ -9,7 +9,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/tygovansteenpaalwork-
 | File | What it does |
 | --- | --- |
 | [`aimbot.lua`](aimbot.lua) | Soft aim with five aim types, FOV circle, sticky target, team / dead / wall checks. |
-| [`anti_afk.lua`](anti_afk.lua) | Anti AFK, rejoin and server hop (to a smaller server). |
+| [`anti_afk.lua`](anti_afk.lua) | Anti AFK and rejoin the current server. |
 | [`anti_aim.lua`](anti_aim.lua) | Anti Aim is part of desync.lua (pointer) |
 | [`anti_fling.lua`](anti_fling.lua) | Stops other players' bodies from flinging you and cancels sudden launches. |
 | [`anti_ragdoll.lua`](anti_ragdoll.lua) | Refuses the ragdoll / hit-stun state (made for The Strongest Battlegrounds). |
@@ -39,7 +39,6 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/tygovansteenpaalwork-
 | [`punch_fling.lua`](punch_fling.lua) | A real punch animation plus one short fling per punch (TSB's Normal Punch inside TSB). |
 | [`rage.lua`](rage.lua) | Automatic combat: targeting, burst fire, positioning, spinbot, abilities and the RAGE status text. |
 | [`rejoin.lua`](rejoin.lua) | Rejoin is part of anti_afk.lua (pointer) |
-| [`server_hop.lua`](server_hop.lua) | Server Hop is part of anti_afk.lua (pointer) |
 | [`silent_aim.lua`](silent_aim.lua) | Silent aim with hit chance and FOV. Needs an executor with hookmetamethod. |
 | [`skybox.lua`](skybox.lua) | The skybox is custom_skybox.lua (pointer) |
 | [`speed_jump.lua`](speed_jump.lua) | Speed, jump power, infinite jump and anti stun. WalkSpeed / JumpPower are not touched: the CFrame mover does the work. |

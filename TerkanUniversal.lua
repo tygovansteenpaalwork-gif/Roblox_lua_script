@@ -49,7 +49,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.1.0"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.2.2"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -3027,24 +3027,6 @@ end)
 
 misc1:Button({ Text = "Rejoin Server", Callback = function()
     pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, lp) end)
-end })
-
-misc1:Button({ Text = "Server Hop", Callback = function()
-    notify("Server Hop", "Searching for a smaller server...")
-    task.spawn(function()
-        local ok, err = pcall(function()
-            local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):format(game.PlaceId)
-            local data = HttpService:JSONDecode(game:HttpGet(url))
-            for _, server in ipairs(data.data or {}) do
-                if server.id ~= game.JobId and server.playing < server.maxPlayers then
-                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, lp)
-                    return
-                end
-            end
-            error("no other server found")
-        end)
-        if not ok then notify("Server Hop", tostring(err), "error") end
-    end)
 end })
 
 ----------------------------------------------------------------------
