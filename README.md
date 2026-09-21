@@ -1,13 +1,13 @@
 # Terkan Universal
 
-Een universele Roblox-scripthub, gebouwd op **TerkanUI**, een donkerrode UI-bibliotheek. Eén menu met dertien tabs, meer dan 300 instellingen, configs, thema's en sneltoetsen.
+Een universele Roblox-scripthub, gebouwd op **TerkanUI**, een donkerrode UI-bibliotheek. Eén menu met vijftien tabs, meer dan 300 instellingen, configs, thema's en sneltoetsen.
 
 <p align="center">
   <img src="assets/menu.png" alt="Het Terkan-menu, tab Aimbot" width="560">
 </p>
 
 ```
-Aimbot · Trigger · Rage · Cursor · ESP · Visuals · Movement · Defense · Player · Fling · Avatar · Misc · Notifications · Settings
+Aimbot · Trigger · Rage · Cursor · ESP · Visuals · Movement · Defense · Player · Fling · Avatar · FE · Misc · Notifications · Settings
 ```
 
 > **Gebruik het in je eigen games en privéservers.** Scripts zoals dit zijn in de meeste openbare games niet toegestaan en kunnen je account laten verbannen. Jij bent zelf verantwoordelijk voor waar je het draait. Zie de [disclaimer](#disclaimer).
@@ -109,6 +109,8 @@ Voor gebruik met je eigen alt of vrienden in een privéserver. Fling werkt via f
 
 - **Fling Selected Player** en **Fling All** – de speler uit de dropdown van de Player-tab, of iedereen. **Loop Fling All** herhaalt dat met een instelbare pauze. Whitelist en teamgenoten (*Skip Teammates*) worden overgeslagen.
 - **Void Spam** – blijft spelers onder de map sturen en pakt ze na elke respawn opnieuw. *Targets* is *Selected*, *All*, *Nearest* of *Blacklist Only*. Wie al in de void zit, wordt overgeslagen. Met de schuiven regel je kracht, tijd per speler, hoe diep iemand moet zijn om als void te tellen, de neerwaartse en zijwaartse kracht, en de pauzes tussen doelwitten en rondes.
+- **Next Player Delay** – hoe lang hij na elke speler wacht voordat hij de volgende pakt (0 tot 30 seconden), bij Void Spam en Fling All. Tijdens die pauze staat boven je richtkruis `VOID LOADING... 2.3s`, daarna `VOID ACTIVE`. Met *Show Status Text* zet je die tekst uit.
+- **Punch Fling** – een echte punch-animatie plus één korte fling per klap, met een toets of met de linkermuisknop. Op het moment dat je vuist landt, spring je een fractie van een seconde in de speler voor je (binnen *Reach*, en alleen als je naar hem kijkt), geef je hem de fling-snelheidspiek en sta je meteen weer op je plek. Geen spin en geen lang teleporteren. Bij *Animation* kies je Roblox' eigen tool-animaties, de vier M1-slagen en de Normal Punch-move van The Strongest Battlegrounds (daar is dat de standaard), of je zoekt de animaties van het spel zelf met *Scan Game Animations*. *Push Power* regelt de kracht.
 - **Stop** breekt elke lopende actie af, en de camera kan het doelwit volgen (*Camera Follows Target*).
 
 <p align="center">
@@ -118,6 +120,17 @@ Voor gebruik met je eigen alt of vrienden in een privéserver. Fling werkt via f
 ### Avatar
 Word een kopie van een andere speler: zijn accessoires, kleding, kleuren, gezicht en hoofd. Kies iemand in de server of typ elke Roblox-**gebruikersnaam of UserId**. Met **Restore My Avatar** krijg je je eigen uiterlijk exact terug, en de gekopieerde look blijft behouden na een respawn. Dit werkt alleen aan jouw kant: andere spelers blijven je echte avatar zien.
 
+### FE
+Alles hier beweegt of animeert **je eigen karakter**, en dat stuurt Roblox naar de server. **Andere spelers zien het dus ook** (alleen de skybox is puur voor jouw scherm). Voor privéservers en eigen games.
+
+- **Spin** – draai razendsnel rond, met instelbare snelheid, richting en as (normaal, salto of zijwaarts).
+- **Headsit** – je zit met de echte zitanimatie op het hoofd van een speler (de gekozen speler of de dichtstbijzijnde) en blijft daar zitten, ook als hij rent.
+- **Animations** – standaard Roblox-emotes (Dance 1 t/m 3, Wave, Point, Cheer, Laugh, Sit) met snelheid, herhalen, *Freeze Frame* en een eigen toets, of een eigen **animatie-ID**. Alleen animaties van Roblox of van het spel zelf kunnen andere spelers zien.
+- **Poses** – *Sit Anywhere*, *Lay Down* (op je rug of buik) en *Stop All Animations*.
+- **Superman Fly** – je vliegt waar je camera kijkt, met je lichaam horizontaal en beide armen naar voren (de standaard Cheer-animatie, bevroren op het juiste moment). Sta je stil, dan zweef je rechtop met een Levitation-animatie (R15). Met *Pass Through Walls* ga je door muren.
+- **Custom Skybox** – een zelf getekende lucht (Sunset, Neon Night, Aurora, Blood Moon, Deep Space, Pastel Dawn of Ocean Blue, gemaakt als PNG's met kleurverloop en sterren) of je eigen **afbeelding** via een Roblox image-ID, een link of een bestand in je executor-map. Met *Rotate Sky* draait de lucht langzaam.
+- **Telekinesis** – één schakelaar die losse (unanchored) onderdelen naar je toe trekt en in een patroon om je heen laat zweven: **Infinity** (een ∞ die voor je hangt), **Ring**, **Tornado**, **Sphere**, **Galaxy**, **DNA Helix** of **Wings**, of **Cycle** dat elke 8 seconden wisselt. Je regelt maar twee dingen: **Distance** (de minimale afstand tussen jou en de onderdelen) en **Range** (hoe ver hij zoekt, tot 1500 studs en daarna *Infinite*). Met de **Fire Key** (standaard `G`) schiet je alle onderdelen naar je cursor en de knop **Release All** laat ze los. Alleen onderdelen waarvan jij de fysica bezit reageren en worden door anderen gezien; de simulatieradius wordt automatisch vergroot en je krijgt een melding hoeveel onderdelen echt van jou zijn. Zet je het uit, dan krijgen alle onderdelen hun botsing terug en wordt de simulatieradius hersteld. Het werkt alleen op losse onderdelen: vaste onderdelen, spelers en NPC's kun je niet grijpen.
+
 ### Misc
 Anti-AFK, FPS-boost, server hoppen, een Infinite Yield-knop en universele hulpmiddelen die in elke game werken:
 
@@ -125,15 +138,10 @@ Anti-AFK, FPS-boost, server hoppen, een Infinite Yield-knop en universele hulpmi
 - **Freecam** – de camera maakt zich los van je karakter (WASD, `E`/`Space` omhoog, `Q`/`Ctrl` omlaag, `Shift` sneller, rechtermuisknop om rond te kijken). **Unlimited Zoom** haalt de zoomgrens weg.
 - **Waypoints** – sla posities op met een naam en teleporteer erheen. Ze worden per game bewaard als je executor bestanden kan schrijven.
 - **Stats HUD** – FPS, ping en aantal spelers in een hoek naar keuze.
-- **Telekinesis** – één schakelaar die losse (unanchored) onderdelen naar je toe trekt en in een patroon om je heen laat zweven: **Infinity** (een ∞ die voor je hangt), **Ring**, **Tornado**, **Sphere**, **Galaxy**, **DNA Helix** of **Wings**, of **Cycle** dat elke 8 seconden wisselt. Je regelt maar twee dingen: **Distance** (de minimale afstand tussen jou en de onderdelen) en **Range** (hoe ver hij zoekt, tot 1500 studs en daarna *Infinite*). Met de **Fire Key** (standaard `G`) schiet je alle onderdelen naar je cursor en de knop **Release All** laat ze los. Alleen onderdelen waarvan jij de fysica bezit reageren en worden door anderen gezien; de simulatieradius wordt automatisch vergroot en je krijgt een melding hoeveel onderdelen echt van jou zijn. Zet je het uit, dan krijgen alle onderdelen hun botsing terug en wordt de simulatieradius hersteld. Het werkt alleen op losse onderdelen: vaste onderdelen, spelers en NPC's kun je niet grijpen.
 - **Chat Spy** – een sleepbaar venster in de stijl van het menu (de kleuren volgen je thema) dat elk chatbericht toont dat je client ontvangt, gemarkeerd als gewoon, fluister of team. Je kunt de log kopiëren of wissen. Fluisterberichten tussen andere spelers worden bij de nieuwere TextChatService nooit naar jouw client gestuurd, dus die kan geen enkel script zien.
 
 <p align="center">
   <img src="assets/misc.png" alt="De Misc-tab, bovenaan" width="560">
-</p>
-
-<p align="center">
-  <img src="assets/misc2.png" alt="De Misc-tab, telekinesis en chat spy" width="560">
 </p>
 
 ### Notifications
@@ -143,7 +151,7 @@ Tekstmeldingen boven het richtkruis met je eigen kleur (of thema of regenboog), 
 - **Configs** – aanmaken, overschrijven, laden, verwijderen, verversen en autoload instellen of wissen.
 - **Theme** – meerdere ingebouwde thema's en een vrije accentkleur.
 - **Menu** – menutoets, achtergrondvervaging, UI-schaal en het menu uitladen.
-- **Binds** – een sneltoets voor elke belangrijke functie (Soft Aim, Silent Aim, Triggerbot, Rage, ESP, Fly, Follow, Orbit, Cursor, Anti Fling, Anti Void, Anti Ragdoll, Anti Aim, Desync, Noclip, Speed, No Animations, Loop Fling All, Void Spam, Freecam, CFrame Speed, CFrame Fly, Telekinesis, Chat Spy en Clean Particles).
+- **Binds** – een sneltoets voor elke belangrijke functie (Soft Aim, Silent Aim, Triggerbot, Rage, ESP, Fly, Follow, Orbit, Cursor, Anti Fling, Anti Void, Anti Ragdoll, Anti Aim, Desync, Noclip, Speed, No Animations, Loop Fling All, Void Spam, Freecam, CFrame Speed, CFrame Fly, Telekinesis, Spin, Headsit, Superman Fly, Punch Fling, Chat Spy en Clean Particles).
 
 ---
 
@@ -177,7 +185,7 @@ Elke toets is aan te passen in het menu. Met `Backspace` wis je een bind en met 
 - Getest met de **Xeno**-executor. Functies die `hookmetamethod` nodig hebben (Silent Aim) zijn alleen beschikbaar waar de executor dat ondersteunt.
 - Games verschillen. Sommige negeren `mouse1click` en `Tool:Activate`, andere hebben een echte klik in het spel nodig, en sommige verplaatsen zelf de camera. Daarom is de vuurmethode van Rage en Trigger standaard **Auto** (een klik in het spel, met terugval). Probeer bij problemen de andere methodes en aim-types.
 - Met het menu open pauzeert Rage, zodat je hem altijd kunt uitzetten. De zijbalk met tabs scrolt als er meer tabs zijn dan er passen.
-- Alles wat op andere spelers werkt (Fling, Void Spam, Telekinesis) is alleen bedoeld voor privéservers en je eigen ervaringen.
+- Alles wat op andere spelers werkt (Fling, Void Spam, Punch Fling, Headsit, Telekinesis) is alleen bedoeld voor privéservers en je eigen ervaringen.
 - Sommige onderdelen hangen af van je executor. Telekinesis gebruikt `sethiddenproperty`, `gethiddenproperty` en `isnetworkowner` om je simulatieradius te vergroten en te zien welke onderdelen van jou zijn, en Waypoints en Copy Log gebruiken `writefile`, `readfile` en `setclipboard`. Zonder die functies werkt het onderdeel beperkt of niet.
 - Eigenschappen van je karakter uitlezen en vervalsen (een *property spoof*) kan alleen met `hookmetamethod`, `getrawmetatable` of `debug.getmetatable`. Op de executor waarmee dit is getest ontbreken die functies, dus dat is niet gebouwd.
 
