@@ -6,9 +6,16 @@ local moveTab = win:Tab("Movement")
 local move = moveTab:Section("Speed & Jump")
 local fly = moveTab:Section("Flight & Collision", "right")
 
+-- Looked up ONCE per frame instead of once per feature per frame (every Movement/Defense/Fling/FE/Misc
+-- feature that touches our own character calls this, same idea as U.Others() for other players).
+local meHum, meRoot, meChar, meFrame, meTime = nil, nil, nil, -1, 0
 local function myHumanoid()
+    local now = os.clock()
+    if meFrame == U.Frame and now - meTime < 0.1 then return meHum, meRoot, meChar end
     local c = lp.Character
-    return c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart"), c
+    meHum, meRoot, meChar = c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart"), c
+    meFrame, meTime = U.Frame, now
+    return meHum, meRoot, meChar
 end
 
 local orig = {}

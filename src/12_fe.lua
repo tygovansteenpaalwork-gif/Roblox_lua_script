@@ -101,8 +101,8 @@ connect(RunService.Heartbeat, function()
 
     sitSaved = sitSaved or setmetatable({}, { __mode = "k" })
     for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if sitSaved[part] == nil then sitSaved[part] = part.CanCollide end
+        if part:IsA("BasePart") and part.CanCollide then
+            if sitSaved[part] == nil then sitSaved[part] = true end
             part.CanCollide = false
         end
     end
@@ -418,8 +418,8 @@ connect(RunService.Heartbeat, function(dt)
     if C.SuperNoclip then
         superSaved = superSaved or setmetatable({}, { __mode = "k" })
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if superSaved[part] == nil then superSaved[part] = part.CanCollide end
+            if part:IsA("BasePart") and part.CanCollide then
+                if superSaved[part] == nil then superSaved[part] = true end
                 part.CanCollide = false
             end
         end

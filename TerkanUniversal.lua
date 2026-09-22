@@ -1673,48 +1673,51 @@ local function label(parent, props)
     return l
 end
 
--- Joint pairs (world positions) for the skeleton. R6 uses the tops / bottoms of the limbs and torso,
--- R15 the centres of the body parts. Anything missing is simply skipped.
-U.skelBones = function(char, hum)
-    local out = {}
-    local function part(name)
-        local p = char:FindFirstChild(name)
-        return p and p:IsA("BasePart") and p or nil
+-- Joint world positions for the skeleton, keyed by name (R6 names are synthetic: limb tops / bottoms
+-- rather than real instances) plus a fixed list of bone connections per rig. Keying by name lets the
+-- ESP loop project each joint on screen ONCE per frame and reuse it for every bone touching it, instead
+-- of projecting both endpoints of every bone separately (most joints are shared by 2+ bones).
+local R15_JOINT_PARTS = {
+    "Head", "UpperTorso", "LowerTorso",
+    "LeftUpperArm", "LeftLowerArm", "LeftHand", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+    "RightUpperArm", "RightLowerArm", "RightHand", "RightUpperLeg", "RightLowerLeg", "RightFoot",
+}
+local R15_BONES = {
+    { "Head", "UpperTorso" }, { "UpperTorso", "LowerTorso" },
+    { "UpperTorso", "LeftUpperArm" }, { "LeftUpperArm", "LeftLowerArm" }, { "LeftLowerArm", "LeftHand" },
+    { "UpperTorso", "RightUpperArm" }, { "RightUpperArm", "RightLowerArm" }, { "RightLowerArm", "RightHand" },
+    { "LowerTorso", "LeftUpperLeg" }, { "LeftUpperLeg", "LeftLowerLeg" }, { "LeftLowerLeg", "LeftFoot" },
+    { "LowerTorso", "RightUpperLeg" }, { "RightUpperLeg", "RightLowerLeg" }, { "RightLowerLeg", "RightFoot" },
+}
+local R6_BONES = {
+    { "Head", "Neck" }, { "Neck", "Pelvis" },
+    { "LeftShoulder", "RightShoulder" }, { "LeftHip", "RightHip" },
+    { "LeftShoulder", "LeftElbow" }, { "RightShoulder", "RightElbow" },
+    { "LeftHip", "LeftAnkle" }, { "RightHip", "RightAnkle" },
+}
+
+U.skelJoints = function(char, hum)
+    local pos = {}
+    if hum.RigType == Enum.HumanoidRigType.R15 then
+        for _, name in ipairs(R15_JOINT_PARTS) do
+            local p = char:FindFirstChild(name)
+            if p and p:IsA("BasePart") then pos[name] = p.Position end
+        end
+        return pos, R15_BONES
     end
+
     local function top(p) return (p.CFrame * CFrame.new(0, p.Size.Y / 2, 0)).Position end
     local function bottom(p) return (p.CFrame * CFrame.new(0, -p.Size.Y / 2, 0)).Position end
-    local function add(a, b) if a and b then out[#out + 1] = { a, b } end end
-
-    if hum.RigType == Enum.HumanoidRigType.R15 then
-        local head, ut, lt = part("Head"), part("UpperTorso"), part("LowerTorso")
-        add(head and head.Position, ut and ut.Position)
-        add(ut and ut.Position, lt and lt.Position)
-        for _, side in ipairs({ "Left", "Right" }) do
-            local ua, la, hand = part(side .. "UpperArm"), part(side .. "LowerArm"), part(side .. "Hand")
-            add(ut and ut.Position, ua and ua.Position)
-            add(ua and ua.Position, la and la.Position)
-            add(la and la.Position, hand and hand.Position)
-            local ul, ll, foot = part(side .. "UpperLeg"), part(side .. "LowerLeg"), part(side .. "Foot")
-            add(lt and lt.Position, ul and ul.Position)
-            add(ul and ul.Position, ll and ll.Position)
-            add(ll and ll.Position, foot and foot.Position)
-        end
-    else
-        local head, torso = part("Head"), part("Torso")
-        local la, ra, ll, rl = part("Left Arm"), part("Right Arm"), part("Left Leg"), part("Right Leg")
-        if torso then
-            local neck, pelvis = top(torso), bottom(torso)
-            add(head and head.Position, neck)
-            add(neck, pelvis)
-            add(la and top(la), ra and top(ra))       -- shoulders
-            add(ll and top(ll), rl and top(rl))       -- hips
-        end
-        for _, name in ipairs({ "Left Arm", "Right Arm", "Left Leg", "Right Leg" }) do
-            local limb = part(name)
-            if limb then add(top(limb), bottom(limb)) end
-        end
-    end
-    return out
+    local head, torso = char:FindFirstChild("Head"), char:FindFirstChild("Torso")
+    local la, ra = char:FindFirstChild("Left Arm"), char:FindFirstChild("Right Arm")
+    local ll, rl = char:FindFirstChild("Left Leg"), char:FindFirstChild("Right Leg")
+    if head and head:IsA("BasePart") then pos.Head = head.Position end
+    if torso and torso:IsA("BasePart") then pos.Neck, pos.Pelvis = top(torso), bottom(torso) end
+    if la and la:IsA("BasePart") then pos.LeftShoulder, pos.LeftElbow = top(la), bottom(la) end
+    if ra and ra:IsA("BasePart") then pos.RightShoulder, pos.RightElbow = top(ra), bottom(ra) end
+    if ll and ll:IsA("BasePart") then pos.LeftHip, pos.LeftAnkle = top(ll), bottom(ll) end
+    if rl and rl:IsA("BasePart") then pos.RightHip, pos.RightAnkle = top(rl), bottom(rl) end
+    return pos, R6_BONES
 end
 
 -- why the ESP set of a player was (re)built - kept for U.EspStats(), to see what makes the number of sets grow
@@ -1974,18 +1977,28 @@ connect(RunService.RenderStepped, function()
                     o.hpFill.BackgroundColor3 = C.ESPHealthShift
                         and Color3.fromRGB(230, 60, 60):Lerp(C.ESPHealthColor, frac) or C.ESPHealthColor
 
-                    -- skeleton
+                    -- skeleton: project each joint once (many bones share a joint - shoulders/hips/elbows...)
+                    -- and reuse it for every bone touching it, instead of projecting both ends of every bone
                     if C.ESPSkeleton then
-                        local joints = U.skelBones(char, hum)
+                        local joints, bones = U.skelJoints(char, hum)
                         local skelCol = teamCol or C.ESPSkelColor
-                        for i, line in ipairs(o.bones) do
-                            local pair = joints[i]
-                            local a, aOn, b, bOn
-                            if pair then
-                                a, aOn = screenPoint(pair[1])
-                                b, bOn = screenPoint(pair[2])
+                        local proj = {}
+                        local function projected(name)
+                            local p = joints[name]
+                            if not p then return nil end
+                            local cached = proj[name]
+                            if cached == nil then
+                                local sp, on = screenPoint(p)
+                                cached = on and sp or false
+                                proj[name] = cached
                             end
-                            if pair and aOn and bOn then
+                            return cached or nil
+                        end
+                        for i, line in ipairs(o.bones) do
+                            local pair = bones[i]
+                            local a = pair and projected(pair[1])
+                            local b = pair and projected(pair[2])
+                            if a and b then
                                 local d = b - a
                                 line.Visible = true
                                 line.BackgroundColor3 = skelCol
@@ -2291,9 +2304,16 @@ local moveTab = win:Tab("Movement")
 local move = moveTab:Section("Speed & Jump")
 local fly = moveTab:Section("Flight & Collision", "right")
 
+-- Looked up ONCE per frame instead of once per feature per frame (every Movement/Defense/Fling/FE/Misc
+-- feature that touches our own character calls this, same idea as U.Others() for other players).
+local meHum, meRoot, meChar, meFrame, meTime = nil, nil, nil, -1, 0
 local function myHumanoid()
+    local now = os.clock()
+    if meFrame == U.Frame and now - meTime < 0.1 then return meHum, meRoot, meChar end
     local c = lp.Character
-    return c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart"), c
+    meHum, meRoot, meChar = c and c:FindFirstChildOfClass("Humanoid"), c and c:FindFirstChild("HumanoidRootPart"), c
+    meFrame, meTime = U.Frame, now
+    return meHum, meRoot, meChar
 end
 
 local orig = {}
@@ -3320,8 +3340,8 @@ connect(RunService.Stepped, function()
     local _, _, char = myHumanoid()
     if not char then return end
     for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if savedCollide[part] == nil then savedCollide[part] = part.CanCollide end
+        if part:IsA("BasePart") and part.CanCollide then
+            if savedCollide[part] == nil then savedCollide[part] = true end
             part.CanCollide = false
         end
     end
@@ -4115,8 +4135,8 @@ connect(RunService.Heartbeat, function()
 
     sitSaved = sitSaved or setmetatable({}, { __mode = "k" })
     for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if sitSaved[part] == nil then sitSaved[part] = part.CanCollide end
+        if part:IsA("BasePart") and part.CanCollide then
+            if sitSaved[part] == nil then sitSaved[part] = true end
             part.CanCollide = false
         end
     end
@@ -4432,8 +4452,8 @@ connect(RunService.Heartbeat, function(dt)
     if C.SuperNoclip then
         superSaved = superSaved or setmetatable({}, { __mode = "k" })
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if superSaved[part] == nil then superSaved[part] = part.CanCollide end
+            if part:IsA("BasePart") and part.CanCollide then
+                if superSaved[part] == nil then superSaved[part] = true end
                 part.CanCollide = false
             end
         end

@@ -1532,6 +1532,7 @@ end
 
 local function bindIsDown(bind)
     if not bind then return false end
+    if UserInputService:GetFocusedTextBox() then return false end   -- never fire while typing (chat, config name, ...)
     if bind.EnumType == Enum.KeyCode then return UserInputService:IsKeyDown(bind) end
     return UserInputService:IsMouseButtonPressed(bind)
 end
