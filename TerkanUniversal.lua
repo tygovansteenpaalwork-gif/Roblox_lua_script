@@ -49,7 +49,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.4.4"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.5.0"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -155,7 +155,7 @@ local FEATURE_TOGGLES = {
     FovEnabled = true, FpsBoost = true, AntiAfk = true, VoidSpam = true, AntiRagdoll = true, FlingLoop = true, NoAnim = true, Freecam = true,
     CleanEffects = true, CleanFog = true, CleanParticles = true, ZoomUnlock = true, StatsHud = true,
     CfSpeed = true, CfFly = true, TkEnabled = true, ChatSpy = true, ShOn = true, ShFuture = true,
-    SpinOn = true, HeadSit = true, SitOn = true, LayDown = true, SkyOn = true, SuperFly = true, PunchOn = true,
+    SpinOn = true, HeadSit = true, SitOn = true, LayDown = true, SkyOn = true, SuperFly = true, PunchOn = true, SkinOn = true,
 }
 
 local function toggle(sec, text, key, default, onChange)
@@ -2787,6 +2787,161 @@ renderLast(function(dt)
     if C.ShReflect then applyReflect() end
     if C.ShLight then applyLight() end
     if C.ShAir then applyAir() end
+end)
+-- weapon skin ---------------------------------------------------------------------------------------------
+-- Changes how YOUR weapon looks, only on your own screen (the game decides what others see). It covers the
+-- viewmodel - the gun + arms model many shooters put right in front of the camera (Arsenal: Camera.Arms) - and a
+-- Tool held by your character. Everything it changes is remembered and put back when it is switched off.
+local skinSec = vibeTab:Section("Weapon Skin", "right")
+local SKIN_MATERIAL = {
+    Neon = Enum.Material.Neon, Glass = Enum.Material.Glass, ForceField = Enum.Material.ForceField,
+    Smooth = Enum.Material.SmoothPlastic, Chrome = Enum.Material.Metal,
+}
+local skin = {
+    orig = setmetatable({}, { __mode = "k" }),   -- [instance] = { property = original value }
+    parts = {}, models = {}, outlines = {}, scanAt = 0,
+}
+
+local function restoreSkin()
+    for inst, saved in pairs(skin.orig) do
+        pcall(function() for prop, v in pairs(saved) do inst[prop] = v end end)
+    end
+    table.clear(skin.orig)
+    table.clear(skin.parts)
+    for _, h in pairs(skin.outlines) do h:Destroy() end
+    table.clear(skin.outlines)
+    skin.scanAt = 0
+end
+onUnload(restoreSkin)
+
+-- a changed choice starts from the original look again, so nothing of the previous style is left behind
+local function restyle() if C.SkinOn then restoreSkin() end end
+
+toggle(skinSec, "Weapon Skin", "SkinOn", false, function(v) if not v then restoreSkin() end end)
+dropdown(skinSec, "Material", "SkinMaterial", { "Original", "Neon", "Glass", "ForceField", "Smooth", "Chrome" }, "Neon", restyle)
+dropdown(skinSec, "Color", "SkinColorMode", { "Original", "Solid Color", "Rainbow" }, "Rainbow", restyle)
+color(skinSec, "Skin Color", "SkinColor", Color3.fromRGB(255, 32, 48))
+slider(skinSec, "Transparency", "SkinTrans", 0, 0.9, 0, { Decimals = 2 })
+toggle(skinSec, "Outline", "SkinOutline", false)
+toggle(skinSec, "Include Arms", "SkinArms", false, restyle)
+
+local function remember(inst, props)
+    if skin.orig[inst] then return end
+    local saved = {}
+    for _, prop in ipairs(props) do
+        local ok, v = pcall(function() return inst[prop] end)
+        if ok then saved[prop] = v end
+    end
+    skin.orig[inst] = saved
+end
+
+-- arms, hands, gloves and sleeves of the viewmodel - but not a weapon's "Handle" (it contains "hand")
+local function isArm(name)
+    name = name:lower()
+    if name:find("handle") then return false end
+    return name:find("arm") or name:find("hand") or name:find("glove") or name:find("sleeve")
+end
+
+-- the viewmodel(s): models right in front of the camera, plus a Tool in your character's hand
+local function weaponModels()
+    local list = {}
+    local c = cam()
+    local camPos = c.CFrame.Position
+    for _, m in ipairs(c:GetChildren()) do
+        if m:IsA("Model") then
+            local p = m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart", true)
+            if p and (p.Position - camPos).Magnitude < 15 then table.insert(list, m) end
+        end
+    end
+    local char = lp.Character
+    local tool = char and char:FindFirstChildOfClass("Tool")
+    if tool then table.insert(list, tool) end
+    return list
+end
+
+-- 4x a second: which parts to paint. Textures and SurfaceAppearances would cover a new colour, so while a colour is
+-- chosen they are hidden (and restored with everything else).
+local function scanSkin()
+    local recolor = C.SkinColorMode ~= "Original"
+    local parts = {}
+    skin.models = weaponModels()
+    for _, m in ipairs(skin.models) do
+        for _, d in ipairs(m:GetDescendants()) do
+            if d:IsA("BasePart") then
+                local saved = skin.orig[d]
+                local baseT = saved and saved.Transparency or d.Transparency
+                -- invisible helper parts (root, joints, hit boxes) stay invisible
+                if baseT < 0.95 and (C.SkinArms or not isArm(d.Name)) then
+                    table.insert(parts, d)
+                    if recolor then
+                        if d:IsA("MeshPart") then
+                            remember(d, { "Material", "Color", "Transparency", "Reflectance", "TextureID" })
+                            pcall(function() d.TextureID = "" end)
+                        end
+                        for _, k in ipairs(d:GetChildren()) do
+                            if k:IsA("SurfaceAppearance") then
+                                remember(k, { "Parent" })
+                                k.Parent = nil
+                            elseif k:IsA("Decal") or k:IsA("Texture") then
+                                remember(k, { "Transparency" })
+                                k.Transparency = 1
+                            elseif k:IsA("SpecialMesh") then
+                                remember(k, { "TextureId" })
+                                k.TextureId = ""
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    skin.parts = parts
+end
+
+renderLast(function()
+    if not (C.SkinOn and U.Running) then return end
+    local now = os.clock()
+    if now - skin.scanAt > 0.25 then
+        skin.scanAt = now
+        scanSkin()
+    end
+
+    local mat = SKIN_MATERIAL[C.SkinMaterial]
+    local col = (C.SkinColorMode == "Rainbow" and Color3.fromHSV((now * 0.25) % 1, 0.85, 1))
+        or (C.SkinColorMode == "Solid Color" and C.SkinColor) or nil
+    for _, p in ipairs(skin.parts) do
+        if p.Parent then
+            remember(p, { "Material", "Color", "Transparency", "Reflectance" })
+            local saved = skin.orig[p]
+            if mat then p.Material = mat end
+            if col then p.Color = col end
+            p.Reflectance = C.SkinMaterial == "Chrome" and 0.6 or saved.Reflectance
+            p.Transparency = math.max(saved.Transparency or 0, C.SkinTrans)
+        end
+    end
+
+    -- outline: a Highlight that only draws the edge, in the skin colour (rainbow included)
+    local lineCol = col or C.SkinColor
+    local keep = {}
+    if C.SkinOutline then
+        for _, m in ipairs(skin.models) do
+            keep[m] = true
+            local h = skin.outlines[m]
+            if not (h and h.Parent) then
+                h = Instance.new("Highlight")
+                h.Name = U.rname()
+                h.FillTransparency = 1
+                h.DepthMode = Enum.HighlightDepthMode.Occluded
+                h.Adornee = m
+                h.Parent = m
+                skin.outlines[m] = h
+            end
+            h.OutlineColor = lineCol
+        end
+    end
+    for m, h in pairs(skin.outlines) do
+        if not keep[m] then h:Destroy() skin.outlines[m] = nil end
+    end
 end)
 end)()
 
@@ -6574,6 +6729,7 @@ keybind(bindSec, "Anti Aim", "BindAntiAim", nil, flip("AntiAim"))
 keybind(bindSec, "Desync", "BindDesync", nil, flip("Desync"))
 keybind(bindSec, "Noclip", "BindNoclip", nil, flip("Noclip"))
 keybind(bindSec, "Speed", "BindSpeed", nil, flip("SpeedEnabled"))
+keybind(bindSec, "Weapon Skin", "BindSkin", nil, flip("SkinOn"))
 
 ----------------------------------------------------------------------
 -- startup / unload
