@@ -17,6 +17,9 @@ toggle(esp, "Skeleton", "ESPSkeleton", true)
 toggle(esp, "Chams", "ESPChams", false)
 toggle(esp, "Tracers", "ESPTracers", false)
 toggle(esp, "Team Check", "ESPTeam", false)
+-- lobby / waiting-room / spectator rigs: fully see-through, or parked far under the map (Arsenal keeps dead and
+-- respawning players ~450 studs below the arena). Drawing them put names and lines where nobody is.
+toggle(esp, "Skip Hidden Rigs", "ESPNoHidden", true)
 slider(esp, "Max Distance", "ESPDist", 100, 5000, 1500, { Suffix = " st" })
 
 toggle(espCol, "Use Team Colors", "ESPTeamColors", false)
@@ -265,6 +268,20 @@ function U.EspSweep()
 end
 
 -- for debugging: how many ESP sets exist, how many instances they hold, how often they were built / swept
+-- A point on screen, but only when it is clearly in front of the camera. A point just in front of the lens
+-- (a player standing inside / right next to you) projects to thousands of pixels, which drew huge broken lines.
+function U.espPoint(pos)
+    local v = cam():WorldToViewportPoint(pos)
+    return Vector2.new(v.X, v.Y), v.Z > 1
+end
+
+-- see "Skip Hidden Rigs": invisible, or more than 250 studs below your own character
+function U.espHidden(char, root)
+    if U.isInvisible(char) then return true end
+    local _, _, me = charOf(lp, true)
+    return me ~= nil and root.Position.Y < me.Position.Y - 250
+end
+
 function U.EspStats()
     local sets = 0
     for _ in pairs(ESP) do sets += 1 end
@@ -272,8 +289,14 @@ function U.EspStats()
              builds = U.EspBuilds, swept = U.EspSwept, log = U.EspLog }
 end
 
-connect(RunService.RenderStepped, function()
+-- The 2D parts (tracers, health bars, skeleton) must be projected with exactly the camera the frame is drawn with,
+-- or they hang beside the character. So they are drawn at PreRender, the last moment before drawing: after the
+-- aimbot / rage turned the camera, and after games that set their own field of view late in the frame (Arsenal
+-- puts it back to 70 after RenderStepped - with Custom FOV on, the ESP used to project with 120 and slid inwards).
+-- Custom FOV is applied here once more first, so it really is the field of view the frame is drawn with.
+local function drawESP()
     if not U.Running then return end
+    if U.applyFov then U.applyFov() end
     local c = cam()
     local camPos = c.CFrame.Position
     local vp = c.ViewportSize
@@ -291,6 +314,7 @@ connect(RunService.RenderStepped, function()
             if not (hum and root) or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then char = nil end
             local show = C.ESPEnabled and char ~= nil
             if show and C.ESPTeam and sameTeam(plr) then show = false end
+            if show and C.ESPNoHidden and U.espHidden(char, root) then show = false end
             local dist = show and (root.Position - camPos).Magnitude or 0
             if show and dist > C.ESPDist then show = false end
 
@@ -324,7 +348,7 @@ connect(RunService.RenderStepped, function()
                         for xi = -1, 1, 2 do
                             for yi = -1, 1, 2 do
                                 for zi = -1, 1, 2 do
-                                    local sp, on = screenPoint((root.CFrame * CFrame.new(xi * sx / 2, cy + yi * sy / 2, zi * sz / 2)).Position)
+                                    local sp, on = U.espPoint((root.CFrame * CFrame.new(xi * sx / 2, cy + yi * sy / 2, zi * sz / 2)).Position)
                                     if not on then allOn = false end
                                     minX, minY, maxY = math.min(minX, sp.X), math.min(minY, sp.Y), math.max(maxY, sp.Y)
                                 end
@@ -387,7 +411,7 @@ connect(RunService.RenderStepped, function()
                             if not p then return nil end
                             local cached = proj[name]
                             if cached == nil then
-                                local sp, on = screenPoint(p)
+                                local sp, on = U.espPoint(p)
                                 cached = on and sp or false
                                 proj[name] = cached
                             end
@@ -413,7 +437,7 @@ connect(RunService.RenderStepped, function()
                     end
 
                     if C.ESPTracers then
-                        local sp, on = screenPoint(root.Position)
+                        local sp, on = U.espPoint(root.Position)
                         if on then
                             local from = Vector2.new(vp.X / 2, vp.Y)
                             local d = sp - from
@@ -432,7 +456,12 @@ connect(RunService.RenderStepped, function()
             end
         end
     end
-end)
+end
+if RunService.PreRender then
+    connect(RunService.PreRender, drawESP)
+else
+    connect(RunService.RenderStepped, drawESP)
+end
 
 -- view -----------------------------------------------------------------
 
@@ -453,7 +482,17 @@ slider(world, "Fullbright Time Of Day", "FullbrightTime", 0, 24, 14, { Decimals 
 toggle(world, "Custom FOV", "FovEnabled", false)
 slider(world, "Field of View", "FovValue", 30, 120, 90, { Suffix = "°" })
 
-local originalFov
+-- Custom FOV: set at RenderPriority.Last (so the rest of the frame sees it) and again right before drawing (see drawESP),
+-- because some games put their own field of view back late in the frame
+function U.applyFov()
+    if C.FovEnabled then
+        U.origFov = U.origFov or cam().FieldOfView
+        cam().FieldOfView = C.FovValue
+    elseif U.origFov then
+        cam().FieldOfView = U.origFov
+        U.origFov = nil
+    end
+end
 renderLast(function()
     if C.Fullbright then
         Lighting.Brightness = C.FullbrightLevel
@@ -463,16 +502,10 @@ renderLast(function()
         Lighting.Ambient = Color3.fromRGB(178, 178, 178)
         Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
     end
-    if C.FovEnabled then
-        originalFov = originalFov or cam().FieldOfView
-        cam().FieldOfView = C.FovValue
-    elseif originalFov then
-        cam().FieldOfView = originalFov
-        originalFov = nil
-    end
+    U.applyFov()
 end)
 onUnload(function()
     if originalLighting then for k, val in pairs(originalLighting) do pcall(function() Lighting[k] = val end) end end
-    if originalFov then cam().FieldOfView = originalFov end
+    if U.origFov then cam().FieldOfView = U.origFov end
 end)
 

@@ -53,6 +53,12 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.4.3
+
+- **ESP staat weer op de spelers.** Skeleton, healthbar en tracers worden op het laatste moment voor het tekenen berekend. Games die hun eigen gezichtsveld laat in de frame terugzetten (zoals Arsenal) schoven de 2D-ESP eerder naar het midden van het scherm. **Custom FOV** werkt daardoor nu ook in zulke games.
+- **Skip Hidden Rigs** (standaard aan): geen ESP op onzichtbare rigs of op spelers die ver onder de map geparkeerd staan (wachtruimtes voor dode of respawnende spelers).
+- **Geen kapotte lijnen van dichtbij.** Punten vlak voor de camera worden niet meer getekend, zodat een speler naast je geen enorme skeletlijnen over je scherm geeft.
+
 ## Nieuw in 2.4.2
 
 - **Glow.** De custom cursor (*Cursor → Look*) en de meldingen plus de Rage-tekst (*Notifications → Appearance*) kunnen een zachte gloed krijgen in hun eigen kleur, rainbow inbegrepen. Elk met een eigen schakelaar en *Glow Size*.
