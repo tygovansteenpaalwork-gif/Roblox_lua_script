@@ -61,7 +61,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.4.1"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.4.2"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -359,7 +359,52 @@ end
 -- (newest closest to the middle, older ones stacked away from it, each fading in and out)
 ----------------------------------------------------------------------
 
-local toasts = {}   -- newest first: { label, born, kind }
+-- Glow for a TextLabel. Roblox UI cannot blur, so the light is faked: three copies right behind the text, each
+-- with a same-coloured outline that is thicker and fainter than the one before. U.SyncGlow copies text, size and
+-- position from the label every frame, so the glow follows whatever the label does (fading, moving, resizing).
+function U.NewGlow(label)
+    local g = { label = label, layers = {} }
+    for i = 1, 3 do
+        local l = Instance.new("TextLabel")
+        l.BackgroundTransparency = 1
+        l.TextStrokeTransparency = 1
+        l.ZIndex = label.ZIndex - 1
+        l.Visible = false
+        local s = Instance.new("UIStroke")
+        s.LineJoinMode = Enum.LineJoinMode.Round
+        s.Parent = l
+        l.Parent = label.Parent
+        g.layers[i] = { label = l, stroke = s }
+    end
+    return g
+end
+
+-- on: glow wanted, size: outline width of the widest layer in px, fade: 0 (hidden) .. 1 (fully visible)
+function U.SyncGlow(g, on, color, size, fade)
+    local src = g.label
+    local show = on and src.Visible and fade > 0.01
+    for i, e in ipairs(g.layers) do
+        local l = e.label
+        l.Visible = show
+        if show then
+            l.Text, l.Font, l.TextSize, l.TextTruncate = src.Text, src.Font, src.TextSize, src.TextTruncate
+            l.Size, l.Position, l.AnchorPoint = src.Size, src.Position, src.AnchorPoint
+            l.TextXAlignment, l.TextYAlignment = src.TextXAlignment, src.TextYAlignment
+            l.TextColor3 = color
+            l.TextTransparency = 1 - fade
+            e.stroke.Color = color
+            e.stroke.Thickness = size * i / 3
+            e.stroke.Transparency = 1 - fade * (0.5 - 0.13 * i)   -- inner layer brightest
+        end
+    end
+end
+
+function U.DropGlow(g)
+    if not g then return end
+    for _, e in ipairs(g.layers) do e.label:Destroy() end
+end
+
+local toasts = {}   -- newest first: { label, born, kind, glow }
 local TOAST_LINE = 24
 
 local function toastColor(kind)
@@ -387,12 +432,14 @@ showToast = function(title, text, kind)
     table.insert(toasts, 1, { label = label, born = os.clock(), kind = kind })
 
     while #toasts > (C.NotifMax or 5) do
-        table.remove(toasts).label:Destroy()
+        local t = table.remove(toasts)
+        t.label:Destroy()
+        U.DropGlow(t.glow)
     end
 end
 
 onUnload(function()
-    for _, t in ipairs(toasts) do t.label:Destroy() end
+    for _, t in ipairs(toasts) do t.label:Destroy() U.DropGlow(t.glow) end
     table.clear(toasts)
 end)
 
@@ -406,6 +453,7 @@ renderLast(function()
     for i = #toasts, 1, -1 do
         if now - toasts[i].born > life + 0.4 then
             toasts[i].label:Destroy()
+            U.DropGlow(toasts[i].glow)
             table.remove(toasts, i)
         end
     end
@@ -417,9 +465,13 @@ renderLast(function()
         t.label.AnchorPoint = Vector2.new(0.5, above and 1 or 0)
         t.label.Position = UDim2.fromOffset(center.X, above and (center.Y - 70 - slot * TOAST_LINE)
             or (center.Y + 78 + slot * TOAST_LINE))
-        t.label.TextColor3 = toastColor(t.kind)
+        local col = toastColor(t.kind)
+        t.label.TextColor3 = col
         t.label.TextTransparency = 1 - fade
         t.label.TextStrokeTransparency = math.clamp(0.35 + (1 - fade), 0, 1)
+        -- glow layers are only made once the setting is on (and kept until the toast is gone)
+        if C.NotifGlow and not t.glow then t.glow = U.NewGlow(t.label) end
+        if t.glow then U.SyncGlow(t.glow, C.NotifGlow, col, C.NotifGlowSize or 6, fade) end
     end
 end)
 

@@ -53,6 +53,10 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.4.2
+
+- **Glow.** De custom cursor (*Cursor → Look*) en de meldingen plus de Rage-tekst (*Notifications → Appearance*) kunnen een zachte gloed krijgen in hun eigen kleur, rainbow inbegrepen. Elk met een eigen schakelaar en *Glow Size*.
+
 ## Nieuw in 2.4.1
 
 - **Aimbot blijft locken.** De wandcontrole ziet doorzichtige onderdelen en onderdelen zonder botsing (hit-effecten, beams, glas) niet meer als muur, zodat de lock tijdens een gevecht niet steeds even loslaat. Rage en Silent Aim profiteren mee.

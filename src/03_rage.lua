@@ -495,6 +495,8 @@ rageText.TextStrokeTransparency = 0.35
 rageText.TextStrokeColor3 = Color3.new(0, 0, 0)
 rageText.Visible = false
 rageText.Parent = overlay
+R.glow = U.NewGlow(rageText)
+onUnload(function() U.DropGlow(R.glow) end)
 
 local rageAlpha = 0
 
@@ -518,7 +520,7 @@ renderLast(function(dt)
     local want = rageState ~= "off" and C.RageStatus
     rageAlpha += ((want and 1 or 0) - rageAlpha) * math.min(dt * 12, 1)
     rageText.Visible = rageAlpha > 0.02
-    if not rageText.Visible then return end
+    if not rageText.Visible then U.SyncGlow(R.glow, false) return end
 
     local text
     if rageState == "loading" then
@@ -550,6 +552,7 @@ renderLast(function(dt)
     rageText.TextTransparency = 1 - rageAlpha
     rageText.TextStrokeTransparency = math.clamp(0.35 + (1 - rageAlpha), 0, 1)
     rageText.Position = UDim2.fromOffset(center.X, center.Y - 30)
+    U.SyncGlow(R.glow, C.NotifGlow, rageText.TextColor3, C.NotifGlowSize or 6, rageAlpha)
 end)
 end   -- rage block
 

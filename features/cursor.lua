@@ -41,6 +41,9 @@ slider(curLook, "Size", "CursorSize", 4, 60, 12, { Suffix = " px" })
 slider(curLook, "Line Width", "CursorThick", 1, 8, 2, { Suffix = " px" })
 slider(curLook, "Gap", "CursorGap", 0, 30, 4, { Suffix = " px" })
 slider(curLook, "Dot Size", "CursorDot", 2, 20, 4, { Suffix = " px" })
+-- a soft light around the crosshair (and the target name) in the cursor's own colour, rainbow included
+toggle(curLook, "Glow", "CursorGlow", false)
+slider(curLook, "Glow Size", "CursorGlowSize", 2, 16, 6, { Suffix = " px" })
 slider(curLook, "Rotation Speed", "CursorSpin", 0, 720, 0, { Suffix = "°/s" })
 dropdown(curLook, "Animation", "CursorAnim", CURSOR_ANIMS, "None")
 slider(curLook, "Animation Speed", "CursorAnimSpeed", 0.2, 4, 1.2, { Decimals = 1, Suffix = "/s" })
@@ -115,6 +118,32 @@ curLabel.TextStrokeTransparency = 0.35
 curLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
 curLabel.Visible = false
 curLabel.Parent = curRoot
+
+-- glow: two soft layers behind every piece. Roblox UI cannot blur, so a bigger, rounded, see-through copy in
+-- the same colour is what reads as light. [1] = inner (brighter), [2] = outer (fainter).
+local curGlow = { arms = {}, label = U.NewGlow(curLabel) }
+do
+    local function halo()
+        local f = Instance.new("Frame")
+        f.AnchorPoint = Vector2.new(0.5, 0.5)
+        f.BorderSizePixel = 0
+        f.ZIndex = 0
+        f.Visible = false
+        local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(1, 0); corner.Parent = f
+        f.Parent = curRoot
+        return f
+    end
+    local function ringHalo()
+        local f = halo()
+        f.BackgroundTransparency = 1
+        local stroke = Instance.new("UIStroke"); stroke.Parent = f
+        return { frame = f, stroke = stroke }
+    end
+    for i = 1, #curArms do curGlow.arms[i] = { halo(), halo() } end
+    curGlow.dot = { halo(), halo() }
+    curGlow.ring = { ringHalo(), ringHalo() }
+end
+local GLOW_ALPHA = { 0.62, 0.84 }   -- transparency of the inner / outer layer
 
 onUnload(function() curRoot:Destroy() end)
 
@@ -215,10 +244,22 @@ renderLast(function()
                 piece.frame.BackgroundColor3 = col
                 piece.stroke.Enabled = C.CursorOutline
                 piece.frame.Visible = true
+                for k, h in ipairs(curGlow.arms[used]) do
+                    h.Visible = C.CursorGlow
+                    if C.CursorGlow then
+                        local pad = C.CursorGlowSize * k / 2
+                        h.Size = UDim2.fromOffset(piece.frame.Size.X.Offset + pad * 2, thick + pad * 2)
+                        h.Position, h.Rotation = piece.frame.Position, a
+                        h.BackgroundColor3, h.BackgroundTransparency = col, GLOW_ALPHA[k]
+                    end
+                end
             end
         end
     end
-    for i = used + 1, #curArms do curArms[i].frame.Visible = false end
+    for i = used + 1, #curArms do
+        curArms[i].frame.Visible = false
+        for _, h in ipairs(curGlow.arms[i]) do h.Visible = false end
+    end
 
     -- centre dot
     curDot.frame.Visible = parts.dot == true
@@ -229,6 +270,15 @@ renderLast(function()
         curDot.frame.BackgroundColor3 = col
         curDot.stroke.Enabled = C.CursorOutline
     end
+    for k, h in ipairs(curGlow.dot) do
+        h.Visible = C.CursorGlow and parts.dot == true
+        if h.Visible then
+            local d = C.CursorDot * curScale + C.CursorGlowSize * k
+            h.Size = UDim2.fromOffset(d, d)
+            h.Position = UDim2.fromOffset(0, 0)
+            h.BackgroundColor3, h.BackgroundTransparency = col, GLOW_ALPHA[k]
+        end
+    end
 
     -- ring
     curRing.Visible = parts.ring == true
@@ -237,6 +287,15 @@ renderLast(function()
         curRing.Size = UDim2.fromOffset(d, d)
         curRingStroke.Color = col
         curRingStroke.Thickness = thick
+    end
+    for k, h in ipairs(curGlow.ring) do
+        h.frame.Visible = C.CursorGlow and parts.ring == true
+        if h.frame.Visible then
+            h.frame.Size = curRing.Size
+            h.stroke.Color = col
+            h.stroke.Thickness = thick + C.CursorGlowSize * k
+            h.stroke.Transparency = GLOW_ALPHA[k]
+        end
     end
 
     -- "aiming at" label --------------------------------------------------
@@ -273,6 +332,7 @@ renderLast(function()
         curLabel.TextTransparency = textFade
         curLabel.Position = UDim2.fromOffset(0, extent)
     end
+    U.SyncGlow(curGlow.label, C.CursorGlow and showLabel, curLabel.TextColor3, C.CursorGlowSize * 0.75, 1 - curLabel.TextTransparency)
 end)
 
 Ready()
