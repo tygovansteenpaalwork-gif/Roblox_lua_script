@@ -53,6 +53,10 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.4.4
+
+- **Veel minder lag.** Gemeten in Arsenal kost het menu nu ongeveer 1,9 ms per frame in plaats van 6,3 ms (ESP 3,4 naar 0,8 ms, cursor 1,7 naar 0,2 ms). De skeleton-ESP zoekt de lichaamsdelen nog maar een keer per seconde op, de onzichtbaar-check wordt kort onthouden (ook voor Aimbot en Rage), ESP en cursor schrijven alleen nog naar de UI als er echt iets verandert, en de healthbar heeft 2 projecties nodig in plaats van 8.
+
 ## Nieuw in 2.4.3
 
 - **ESP staat weer op de spelers.** Skeleton, healthbar en tracers worden op het laatste moment voor het tekenen berekend. Games die hun eigen gezichtsveld laat in de frame terugzetten (zoals Arsenal) schoven de 2D-ESP eerder naar het midden van het scherm. **Custom FOV** werkt daardoor nu ook in zulke games.

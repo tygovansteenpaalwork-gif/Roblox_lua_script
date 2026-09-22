@@ -180,23 +180,24 @@ local curScale = 1            -- smoothed scale for the "on target" animations
 local curLastPlr, curNewAt = nil, 0
 
 renderLast(function()
+    local put = U.put
     if not (C.CursorEnabled and U.Running) then
-        curRoot.Visible = false
+        put(curRoot, "Visible", false)
         restoreSystemCursor()
         return
     end
 
     -- over the menu the normal pointer is needed to click anything
     if cursorOverMenu() then
-        curRoot.Visible = false
+        put(curRoot, "Visible", false)
         setSystemCursor(true)
         return
     end
     setSystemCursor(not C.CursorHideSys)
 
     local pos = C.CursorPos == "Screen Center" and viewportCenter() or UserInputService:GetMouseLocation()
-    curRoot.Visible = true
-    curRoot.Position = UDim2.fromOffset(pos.X, pos.Y)
+    put(curRoot, "Visible", true)
+    put(curRoot, "Position", UDim2.fromOffset(pos.X, pos.Y))
 
     local t = os.clock()
     local col = C.CursorRainbow and Color3.fromHSV((t * C.CursorRainbowSpeed) % 1, 0.9, 1) or C.CursorColor
@@ -238,69 +239,69 @@ renderLast(function()
                 used += 1
                 local piece = curArms[used]
                 local mid = gap + (seg[1] + seg[2]) / 2 * size
-                piece.frame.Size = UDim2.fromOffset(math.max((seg[2] - seg[1]) * size, 1), thick)
-                piece.frame.Position = UDim2.fromOffset(dx * mid, dy * mid)
-                piece.frame.Rotation = a
-                piece.frame.BackgroundColor3 = col
-                piece.stroke.Enabled = C.CursorOutline
-                piece.frame.Visible = true
+                put(piece.frame, "Size", UDim2.fromOffset(math.max((seg[2] - seg[1]) * size, 1), thick))
+                put(piece.frame, "Position", UDim2.fromOffset(dx * mid, dy * mid))
+                put(piece.frame, "Rotation", a)
+                put(piece.frame, "BackgroundColor3", col)
+                put(piece.stroke, "Enabled", C.CursorOutline)
+                put(piece.frame, "Visible", true)
                 for k, h in ipairs(curGlow.arms[used]) do
-                    h.Visible = C.CursorGlow
+                    put(h, "Visible", C.CursorGlow)
                     if C.CursorGlow then
                         local pad = C.CursorGlowSize * k / 2
-                        h.Size = UDim2.fromOffset(piece.frame.Size.X.Offset + pad * 2, thick + pad * 2)
-                        h.Position, h.Rotation = piece.frame.Position, a
-                        h.BackgroundColor3, h.BackgroundTransparency = col, GLOW_ALPHA[k]
+                        put(h, "Size", UDim2.fromOffset(piece.frame.Size.X.Offset + pad * 2, thick + pad * 2))
+                        put(h, "Position", piece.frame.Position) put(h, "Rotation", a)
+                        put(h, "BackgroundColor3", col) put(h, "BackgroundTransparency", GLOW_ALPHA[k])
                     end
                 end
             end
         end
     end
     for i = used + 1, #curArms do
-        curArms[i].frame.Visible = false
-        for _, h in ipairs(curGlow.arms[i]) do h.Visible = false end
+        put(curArms[i].frame, "Visible", false)
+        for _, h in ipairs(curGlow.arms[i]) do put(h, "Visible", false) end
     end
 
     -- centre dot
-    curDot.frame.Visible = parts.dot == true
+    put(curDot.frame, "Visible", parts.dot == true)
     if parts.dot then
         local d = C.CursorDot * curScale
-        curDot.frame.Size = UDim2.fromOffset(d, d)
-        curDot.frame.Position = UDim2.fromOffset(0, 0)
-        curDot.frame.BackgroundColor3 = col
-        curDot.stroke.Enabled = C.CursorOutline
+        put(curDot.frame, "Size", UDim2.fromOffset(d, d))
+        put(curDot.frame, "Position", UDim2.fromOffset(0, 0))
+        put(curDot.frame, "BackgroundColor3", col)
+        put(curDot.stroke, "Enabled", C.CursorOutline)
     end
     for k, h in ipairs(curGlow.dot) do
-        h.Visible = C.CursorGlow and parts.dot == true
+        put(h, "Visible", C.CursorGlow and parts.dot == true)
         if h.Visible then
             local d = C.CursorDot * curScale + C.CursorGlowSize * k
-            h.Size = UDim2.fromOffset(d, d)
-            h.Position = UDim2.fromOffset(0, 0)
-            h.BackgroundColor3, h.BackgroundTransparency = col, GLOW_ALPHA[k]
+            put(h, "Size", UDim2.fromOffset(d, d))
+            put(h, "Position", UDim2.fromOffset(0, 0))
+            put(h, "BackgroundColor3", col) put(h, "BackgroundTransparency", GLOW_ALPHA[k])
         end
     end
 
     -- ring
-    curRing.Visible = parts.ring == true
+    put(curRing, "Visible", parts.ring == true)
     if parts.ring then
         local d = size * 2
-        curRing.Size = UDim2.fromOffset(d, d)
-        curRingStroke.Color = col
-        curRingStroke.Thickness = thick
+        put(curRing, "Size", UDim2.fromOffset(d, d))
+        put(curRingStroke, "Color", col)
+        put(curRingStroke, "Thickness", thick)
     end
     for k, h in ipairs(curGlow.ring) do
-        h.frame.Visible = C.CursorGlow and parts.ring == true
+        put(h.frame, "Visible", C.CursorGlow and parts.ring == true)
         if h.frame.Visible then
-            h.frame.Size = curRing.Size
-            h.stroke.Color = col
-            h.stroke.Thickness = thick + C.CursorGlowSize * k
-            h.stroke.Transparency = GLOW_ALPHA[k]
+            put(h.frame, "Size", curRing.Size)
+            put(h.stroke, "Color", col)
+            put(h.stroke, "Thickness", thick + C.CursorGlowSize * k)
+            put(h.stroke, "Transparency", GLOW_ALPHA[k])
         end
     end
 
     -- "aiming at" label --------------------------------------------------
     local showLabel = C.CursorLabel and plr ~= nil
-    curLabel.Visible = showLabel
+    put(curLabel, "Visible", showLabel)
     if showLabel then
         local text = plr.DisplayName
         if C.CursorLabelInfo then
@@ -326,11 +327,11 @@ renderLast(function()
             textFade = 0.5 * (0.5 + 0.5 * math.sin(t * speed * 2 * math.pi))
         end
 
-        curLabel.Text = text
-        curLabel.TextSize = math.max(math.floor(C.CursorLabelSize * textScale + 0.5), 6)
-        curLabel.TextColor3 = C.CursorLabelSame and col or C.CursorLabelColor
-        curLabel.TextTransparency = textFade
-        curLabel.Position = UDim2.fromOffset(0, extent)
+        put(curLabel, "Text", text)
+        put(curLabel, "TextSize", math.max(math.floor(C.CursorLabelSize * textScale + 0.5), 6))
+        put(curLabel, "TextColor3", C.CursorLabelSame and col or C.CursorLabelColor)
+        put(curLabel, "TextTransparency", textFade)
+        put(curLabel, "Position", UDim2.fromOffset(0, extent))
     end
     U.SyncGlow(curGlow.label, C.CursorGlow and showLabel, curLabel.TextColor3, C.CursorGlowSize * 0.75, 1 - curLabel.TextTransparency)
 end)

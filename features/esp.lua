@@ -113,27 +113,39 @@ local R6_BONES = {
     { "LeftHip", "LeftAnkle" }, { "RightHip", "RightAnkle" },
 }
 
+-- The joint PARTS are looked up once a second per character (15 FindFirstChild calls per player per frame cost ~1.8 ms
+-- per frame in Arsenal, whose characters have ~60 children); their positions are read every frame into a reused table.
+local R6_LIMBS = { Head = "Head", Torso = "Torso", LA = "Left Arm", RA = "Right Arm", LL = "Left Leg", RL = "Right Leg" }
+U.skelCache = setmetatable({}, { __mode = "k" })
 U.skelJoints = function(char, hum)
-    local pos = {}
-    if hum.RigType == Enum.HumanoidRigType.R15 then
-        for _, name in ipairs(R15_JOINT_PARTS) do
+    local now = os.clock()
+    local sc = U.skelCache[char]
+    if not sc or now - sc.at > 1 then
+        local r15 = hum.RigType == Enum.HumanoidRigType.R15
+        local parts = {}
+        for key, name in pairs(r15 and R15_JOINT_PARTS or R6_LIMBS) do
             local p = char:FindFirstChild(name)
-            if p and p:IsA("BasePart") then pos[name] = p.Position end
+            if p and p:IsA("BasePart") then parts[r15 and name or key] = p end
         end
+        sc = { at = now, r15 = r15, parts = parts, pos = sc and sc.pos or {} }
+        U.skelCache[char] = sc
+    end
+    local pos, parts = sc.pos, sc.parts
+    table.clear(pos)
+    if sc.r15 then
+        for name, p in pairs(parts) do pos[name] = p.Position end
         return pos, R15_BONES
     end
-
-    local function top(p) return (p.CFrame * CFrame.new(0, p.Size.Y / 2, 0)).Position end
-    local function bottom(p) return (p.CFrame * CFrame.new(0, -p.Size.Y / 2, 0)).Position end
-    local head, torso = char:FindFirstChild("Head"), char:FindFirstChild("Torso")
-    local la, ra = char:FindFirstChild("Left Arm"), char:FindFirstChild("Right Arm")
-    local ll, rl = char:FindFirstChild("Left Leg"), char:FindFirstChild("Right Leg")
-    if head and head:IsA("BasePart") then pos.Head = head.Position end
-    if torso and torso:IsA("BasePart") then pos.Neck, pos.Pelvis = top(torso), bottom(torso) end
-    if la and la:IsA("BasePart") then pos.LeftShoulder, pos.LeftElbow = top(la), bottom(la) end
-    if ra and ra:IsA("BasePart") then pos.RightShoulder, pos.RightElbow = top(ra), bottom(ra) end
-    if ll and ll:IsA("BasePart") then pos.LeftHip, pos.LeftAnkle = top(ll), bottom(ll) end
-    if rl and rl:IsA("BasePart") then pos.RightHip, pos.RightAnkle = top(rl), bottom(rl) end
+    local function ends(p)
+        local cf, h = p.CFrame, p.Size.Y / 2
+        return cf:PointToWorldSpace(Vector3.new(0, h, 0)), cf:PointToWorldSpace(Vector3.new(0, -h, 0))
+    end
+    if parts.Head then pos.Head = parts.Head.Position end
+    if parts.Torso then pos.Neck, pos.Pelvis = ends(parts.Torso) end
+    if parts.LA then pos.LeftShoulder, pos.LeftElbow = ends(parts.LA) end
+    if parts.RA then pos.RightShoulder, pos.RightElbow = ends(parts.RA) end
+    if parts.LL then pos.LeftHip, pos.LeftAnkle = ends(parts.LL) end
+    if parts.RL then pos.RightHip, pos.RightAnkle = ends(parts.RL) end
     return pos, R6_BONES
 end
 
@@ -230,7 +242,6 @@ local function layoutEdges(o, scale, thick)
     for _, x in ipairs({ -1, 1 }) do
         for _, y in ipairs({ -1, 1 }) do put(Vector3.new(thick, thick, sz), Vector3.new(x * sx / 2, cy + y * sy / 2, 0)) end
     end
-    o.edgeSig = scale .. "|" .. thick
 end
 
 local function destroyESP(o)
@@ -241,13 +252,16 @@ local function destroyESP(o)
     for _, b in ipairs(o.bones or {}) do pcall(function() b:Destroy() end) end
 end
 
+-- hidden once, not re-hidden every frame while the player stays off the ESP
 local function hideESP(o)
-    o.hl.Enabled = false
-    o.hpBack.Visible = false
-    o.info.Enabled = false
-    o.tracer.Visible = false
-    for _, e in ipairs(o.edges) do e.Visible = false end
-    for _, b in ipairs(o.bones) do b.Visible = false end
+    if o.isHidden then return end
+    o.isHidden = true
+    U.put(o.hl, "Enabled", false)
+    U.put(o.hpBack, "Visible", false)
+    U.put(o.info, "Enabled", false)
+    U.put(o.tracer, "Visible", false)
+    for _, e in ipairs(o.edges) do U.put(e, "Visible", false) end
+    for _, b in ipairs(o.bones) do U.put(b, "Visible", false) end
 end
 
 connect(Players.PlayerRemoving, function(plr)
@@ -286,14 +300,14 @@ end
 -- A point on screen, but only when it is clearly in front of the camera. A point just in front of the lens
 -- (a player standing inside / right next to you) projects to thousands of pixels, which drew huge broken lines.
 function U.espPoint(pos)
-    local v = cam():WorldToViewportPoint(pos)
+    local v = (U.espCam or cam()):WorldToViewportPoint(pos)
     return Vector2.new(v.X, v.Y), v.Z > 1
 end
 
 -- see "Skip Hidden Rigs": invisible, or more than 250 studs below your own character
 function U.espHidden(char, root)
     if U.isInvisible(char) then return true end
-    local _, _, me = charOf(lp, true)
+    local me = U.espMeRoot
     return me ~= nil and root.Position.Y < me.Position.Y - 250
 end
 
@@ -313,9 +327,14 @@ local function drawESP()
     if not U.Running then return end
     if U.applyFov then U.applyFov() end
     local c = cam()
-    local camPos = c.CFrame.Position
+    U.espCam = c
+    local _, _, meRoot = charOf(lp, true)
+    U.espMeRoot = meRoot
+    local camCF = c.CFrame
+    local camPos, camRight = camCF.Position, camCF.RightVector
     local vp = c.ViewportSize
     local now = os.clock()
+    local put = U.put
 
     if now - (U.EspSweepAt or 0) > 1 then
         U.EspSweepAt = now
@@ -343,130 +362,133 @@ local function drawESP()
                 if not show then
                     hideESP(o)
                 else
+                    o.isHidden = false
                     -- blacklist / whitelist colours win over team colours
                     local listCol = (U.Black[plr.Name] and C.ListBlackColor) or (U.White[plr.Name] and C.ListWhiteColor) or nil
                     local teamCol = listCol or (C.ESPTeamColors and plr.Team and plr.TeamColor.Color)
 
-                    o.hl.Adornee = char
-                    o.hl.FillColor = teamCol or C.ESPFillColor
-                    o.hl.OutlineColor = C.ESPOutlineColor
-                    o.hl.FillTransparency = C.ESPFillTrans
-                    o.hl.Enabled = C.ESPChams
+                    put(o.hl, "Adornee", char)
+                    put(o.hl, "FillColor", teamCol or C.ESPFillColor)
+                    put(o.hl, "OutlineColor", C.ESPOutlineColor)
+                    put(o.hl, "FillTransparency", C.ESPFillTrans)
+                    put(o.hl, "Enabled", C.ESPChams)
 
                     -- health bar: project the 8 corners of the (invisible or drawn) 3D box to the screen and put
                     -- the bar just left of the leftmost corner, as tall as the box appears on screen
-                    o.hpBack.Visible = false
+                    local hpShown = false
                     if C.ESPHealth then
-                        local sx, sy, sz = 4 * C.ESP3DScale, 5.8 * C.ESP3DScale, 2.6 * C.ESP3DScale
-                        local cy = -0.3 * C.ESP3DScale
-                        local minX, minY, maxY, allOn = math.huge, math.huge, -math.huge, true
-                        for xi = -1, 1, 2 do
-                            for yi = -1, 1, 2 do
-                                for zi = -1, 1, 2 do
-                                    local sp, on = U.espPoint((root.CFrame * CFrame.new(xi * sx / 2, cy + yi * sy / 2, zi * sz / 2)).Position)
-                                    if not on then allOn = false end
-                                    minX, minY, maxY = math.min(minX, sp.X), math.min(minY, sp.Y), math.max(maxY, sp.Y)
-                                end
-                            end
-                        end
-                        if allOn and maxY - minY > 4 then
-                            o.hpBack.Visible = true
-                            o.hpBack.Position = UDim2.fromOffset(math.floor(minX - 8), math.floor(minY))
-                            o.hpBack.Size = UDim2.fromOffset(4, math.floor(maxY - minY))
+                        -- the left edge of the box as the camera sees it: 2 projections instead of all 8 corners
+                        local sc = C.ESP3DScale
+                        local mid = root.Position + Vector3.new(0, -0.3 * sc, 0) - camRight * (2 * sc)
+                        local up = Vector3.new(0, 2.9 * sc, 0)
+                        local top, on1 = U.espPoint(mid + up)
+                        local bottom, on2 = U.espPoint(mid - up)
+                        local minX, minY, maxY = math.min(top.X, bottom.X), math.min(top.Y, bottom.Y), math.max(top.Y, bottom.Y)
+                        if on1 and on2 and maxY - minY > 4 then
+                            hpShown = true
+                            put(o.hpBack, "Position", UDim2.fromOffset(math.floor(minX - 8), math.floor(minY)))
+                            put(o.hpBack, "Size", UDim2.fromOffset(4, math.floor(maxY - minY)))
+                            -- fill: grows from the bottom, green (or shifting to red when enabled)
+                            local frac = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                            put(o.hpFill, "Size", UDim2.new(1, 0, math.floor(frac * 100) / 100, 0))
+                            put(o.hpFill, "BackgroundColor3", C.ESPHealthShift
+                                and Color3.fromRGB(230, 60, 60):Lerp(C.ESPHealthColor, math.floor(frac * 20) / 20) or C.ESPHealthColor)
                         end
                     end
+                    put(o.hpBack, "Visible", hpShown)
 
                     -- 3D box
                     if C.ESP3D then
-                        local sig = C.ESP3DScale .. "|" .. C.ESP3DThick
-                        if o.edgeSig ~= sig then layoutEdges(o, C.ESP3DScale, C.ESP3DThick) end
+                        if o.edgeScale ~= C.ESP3DScale or o.edgeThick ~= C.ESP3DThick then
+                            o.edgeScale, o.edgeThick = C.ESP3DScale, C.ESP3DThick
+                            layoutEdges(o, C.ESP3DScale, C.ESP3DThick)
+                        end
                         local col3 = teamCol or C.ESP3DColor
                         for _, e in ipairs(o.edges) do
-                            e.Adornee = root
-                            e.Color3 = col3
-                            e.Visible = true
+                            put(e, "Adornee", root)
+                            put(e, "Color3", col3)
+                            put(e, "Visible", true)
                         end
                     else
-                        for _, e in ipairs(o.edges) do e.Visible = false end
+                        for _, e in ipairs(o.edges) do put(e, "Visible", false) end
                     end
 
                     local hasHeld = C.ESPHeld and o.heldName ~= nil
-                    o.info.Adornee = root
-                    o.info.Enabled = C.ESPName or C.ESPInfo or hasHeld
-                    o.nameLabel.Visible = C.ESPName
-                    o.nameLabel.TextColor3 = teamCol or C.ESPTextColor
-                    o.subLabel.Visible = C.ESPInfo
-                    o.subLabel.TextColor3 = C.ESPTextColor
-                    o.heldLabel.Visible = hasHeld
-                    o.heldLabel.TextColor3 = C.ESPTextColor
+                    put(o.info, "Adornee", root)
+                    put(o.info, "Enabled", C.ESPName or C.ESPInfo or hasHeld)
+                    put(o.nameLabel, "Visible", C.ESPName)
+                    put(o.nameLabel, "TextColor3", teamCol or C.ESPTextColor)
+                    put(o.subLabel, "Visible", C.ESPInfo)
+                    put(o.subLabel, "TextColor3", C.ESPTextColor)
+                    put(o.heldLabel, "Visible", hasHeld)
+                    put(o.heldLabel, "TextColor3", C.ESPTextColor)
 
                     if now - o.tick > 0.1 then
                         o.tick = now
-                        o.nameLabel.Text = plr.DisplayName
-                        o.subLabel.Text = string.format("%d st  |  %d hp", dist, hum.Health)
+                        put(o.nameLabel, "Text", plr.DisplayName)
+                        put(o.subLabel, "Text", string.format("%d st  |  %d hp", dist, hum.Health))
                         local tool = char:FindFirstChildOfClass("Tool")
                         o.heldName = tool and tool.Name or nil
-                        o.heldLabel.Text = tool and ("[ " .. tool.Name .. " ]") or ""
+                        put(o.heldLabel, "Text", tool and ("[ " .. tool.Name .. " ]") or "")
                     end
 
-                    -- health bar fill, every frame: grows from the bottom, green (or shifting to red when enabled)
-                    local frac = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-                    o.hpFill.Size = UDim2.new(1, 0, frac, 0)
-                    o.hpFill.BackgroundColor3 = C.ESPHealthShift
-                        and Color3.fromRGB(230, 60, 60):Lerp(C.ESPHealthColor, frac) or C.ESPHealthColor
-
                     -- skeleton: project each joint once (many bones share a joint - shoulders/hips/elbows...)
-                    -- and reuse it for every bone touching it, instead of projecting both ends of every bone
+                    -- and reuse it for every bone touching it; the projection table is reused, not rebuilt every frame
                     if C.ESPSkeleton then
                         local joints, bones = U.skelJoints(char, hum)
                         local skelCol = teamCol or C.ESPSkelColor
-                        local proj = {}
-                        local function projected(name)
-                            local p = joints[name]
-                            if not p then return nil end
-                            local cached = proj[name]
-                            if cached == nil then
-                                local sp, on = U.espPoint(p)
-                                cached = on and sp or false
-                                proj[name] = cached
-                            end
-                            return cached or nil
-                        end
+                        local proj = o.proj or {}
+                        o.proj = proj
+                        table.clear(proj)
                         for i, line in ipairs(o.bones) do
                             local pair = bones[i]
-                            local a = pair and projected(pair[1])
-                            local b = pair and projected(pair[2])
+                            local a, b
+                            if pair then
+                                for k = 1, 2 do
+                                    local name = pair[k]
+                                    local cached = proj[name]
+                                    if cached == nil then
+                                        local p = joints[name]
+                                        if p then
+                                            local sp, on = U.espPoint(p)
+                                            cached = on and sp or false
+                                        else
+                                            cached = false
+                                        end
+                                        proj[name] = cached
+                                    end
+                                    if k == 1 then a = cached else b = cached end
+                                end
+                            end
                             if a and b then
                                 local d = b - a
-                                line.Visible = true
-                                line.BackgroundColor3 = skelCol
-                                line.Size = UDim2.fromOffset(d.Magnitude, C.ESPSkelWidth)
-                                line.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
-                                line.Rotation = math.deg(math.atan2(d.Y, d.X))
+                                put(line, "Visible", true)
+                                put(line, "BackgroundColor3", skelCol)
+                                put(line, "Size", UDim2.fromOffset(math.floor(d.Magnitude + 0.5), C.ESPSkelWidth))
+                                put(line, "Position", UDim2.fromOffset(math.floor((a.X + b.X) / 2), math.floor((a.Y + b.Y) / 2)))
+                                put(line, "Rotation", math.floor(math.deg(math.atan2(d.Y, d.X)) * 2) / 2)
                             else
-                                line.Visible = false
+                                put(line, "Visible", false)
                             end
                         end
                     else
-                        for _, line in ipairs(o.bones) do line.Visible = false end
+                        for _, line in ipairs(o.bones) do put(line, "Visible", false) end
                     end
 
+                    local tracerShown = false
                     if C.ESPTracers then
                         local sp, on = U.espPoint(root.Position)
                         if on then
-                            local from = Vector2.new(vp.X / 2, vp.Y)
-                            local d = sp - from
-                            o.tracer.Visible = true
-                            o.tracer.BackgroundColor3 = teamCol or C.ESPTracerColor
-                            o.tracer.Size = UDim2.fromOffset(d.Magnitude, C.ESPTracerWidth)
-                            o.tracer.Position = UDim2.fromOffset((from.X + sp.X) / 2, (from.Y + sp.Y) / 2)
-                            o.tracer.Rotation = math.deg(math.atan2(d.Y, d.X))
-                        else
-                            o.tracer.Visible = false
+                            tracerShown = true
+                            local fx, fy = vp.X / 2, vp.Y
+                            local dx, dy = sp.X - fx, sp.Y - fy
+                            put(o.tracer, "BackgroundColor3", teamCol or C.ESPTracerColor)
+                            put(o.tracer, "Size", UDim2.fromOffset(math.floor(math.sqrt(dx * dx + dy * dy) + 0.5), C.ESPTracerWidth))
+                            put(o.tracer, "Position", UDim2.fromOffset(math.floor((fx + sp.X) / 2), math.floor((fy + sp.Y) / 2)))
+                            put(o.tracer, "Rotation", math.floor(math.deg(math.atan2(dy, dx)) * 2) / 2)
                         end
-                    else
-                        o.tracer.Visible = false
                     end
+                    put(o.tracer, "Visible", tracerShown)
                 end
             end
         end

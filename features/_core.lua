@@ -61,7 +61,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.4.3"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.4.4"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -88,6 +88,22 @@ local function connect(signal, fn)
 end
 
 local function onUnload(fn) table.insert(U.Cleanups, fn) end
+
+-- Writing a property of an Instance is expensive (every write crosses into the engine and can trigger a re-layout),
+-- and what the per-frame features draw (ESP, cursor, glow) is mostly the same frame after frame. U.put only writes
+-- when the value really changed; the last written value is remembered per instance. A property written through
+-- U.put must ALWAYS be written through U.put, or the remembered value goes stale.
+do
+    local written = setmetatable({}, { __mode = "k" })
+    function U.put(inst, prop, v)
+        local c = written[inst]
+        if not c then c = {} written[inst] = c end
+        if c[prop] ~= v then
+            c[prop] = v
+            inst[prop] = v
+        end
+    end
+end
 
 local bindCounter = 0
 local function renderLast(fn)
@@ -383,18 +399,21 @@ end
 function U.SyncGlow(g, on, color, size, fade)
     local src = g.label
     local show = on and src.Visible and fade > 0.01
+    local put = U.put
+    fade = show and math.floor(fade * 50) / 50 or 0   -- 2% steps: a finished fade writes nothing any more
     for i, e in ipairs(g.layers) do
         local l = e.label
-        l.Visible = show
+        put(l, "Visible", show)
         if show then
-            l.Text, l.Font, l.TextSize, l.TextTruncate = src.Text, src.Font, src.TextSize, src.TextTruncate
-            l.Size, l.Position, l.AnchorPoint = src.Size, src.Position, src.AnchorPoint
-            l.TextXAlignment, l.TextYAlignment = src.TextXAlignment, src.TextYAlignment
-            l.TextColor3 = color
-            l.TextTransparency = 1 - fade
-            e.stroke.Color = color
-            e.stroke.Thickness = size * i / 3
-            e.stroke.Transparency = 1 - fade * (0.5 - 0.13 * i)   -- inner layer brightest
+            put(l, "Text", src.Text) put(l, "Font", src.Font) put(l, "TextSize", src.TextSize)
+            put(l, "TextTruncate", src.TextTruncate) put(l, "Size", src.Size) put(l, "Position", src.Position)
+            put(l, "AnchorPoint", src.AnchorPoint) put(l, "TextXAlignment", src.TextXAlignment)
+            put(l, "TextYAlignment", src.TextYAlignment)
+            put(l, "TextColor3", color)
+            put(l, "TextTransparency", 1 - fade)
+            put(e.stroke, "Color", color)
+            put(e.stroke, "Thickness", size * i / 3)
+            put(e.stroke, "Transparency", 1 - fade * (0.5 - 0.13 * i))   -- inner layer brightest
         end
     end
 end
@@ -571,11 +590,19 @@ end
 
 -- True when every visible-capable body part is (almost) fully transparent: lobby / spectator / hidden rigs that
 -- belong to a player but are nothing you can actually hit. (A method on U: the main chunk has no free local slots.)
+-- The answer is kept for a quarter of a second per character: walking all parts of every player every frame cost
+-- about 1 ms per frame in games with detailed characters (Arsenal), and aimbot, rage and ESP all ask for it.
+U.invCache = setmetatable({}, { __mode = "k" })
 function U.isInvisible(char)
+    local now = os.clock()
+    local hit = U.invCache[char]
+    if hit and now - hit.at < 0.25 then return hit.v end
+    local v = true
     for _, p in ipairs(char:GetChildren()) do
-        if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" and p.Transparency < 0.9 then return false end
+        if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" and p.Transparency < 0.9 then v = false break end
     end
-    return true
+    U.invCache[char] = { at = now, v = v }
+    return v
 end
 
 -- o: Only (player name: consider nobody else), Skip (set of players to pass over), Origin, FOV (px, nil = no limit), MaxDist, MinDist, Team, NoFF (skip ForceField), NoInvis (skip invisible rigs), Wall, Part, Priority, Sticky (plr)
