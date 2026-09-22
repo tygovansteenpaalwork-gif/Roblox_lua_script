@@ -53,6 +53,12 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.4.1
+
+- **Aimbot blijft locken.** De wandcontrole ziet doorzichtige onderdelen en onderdelen zonder botsing (hit-effecten, beams, glas) niet meer als muur, zodat de lock tijdens een gevecht niet steeds even loslaat. Rage en Silent Aim profiteren mee.
+- **Sticky Target met marge.** Een gelockt doelwit mag tot 1,5x de cirkel afdrijven voordat de Aimbot loslaat.
+- **Geen camera-reset meer.** Zet een game de camera elke frame zelf terug, dan merkt de Aimbot dat en richt hij via de muis. Draait de muis de camera niet, dan gaat hij terug naar de camera. Aimbot uit en aan controleert opnieuw.
+
 ## Nieuw in 2.4.0
 
 - **Rage kiest je wapen.** Onder *Firing* staat **Weapon**: `Auto` (de eerste tool die geen ability is), `No Tool (fists)` of een tool uit je inventory. Na een ability pakt Rage je wapen terug, en het wapen staat nooit tussen de abilities.

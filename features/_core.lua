@@ -61,7 +61,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.4.0"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.4.1"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -477,9 +477,20 @@ end
 local function visible(part, char)
     local me = lp.Character
     if U.rayChar ~= me then U.rayChar = me rayParams.FilterDescendantsInstances = { me } end
+    -- see-through things do not count as a wall: invisible parts and parts without collision (hit effects,
+    -- beams, glass panes ...). Battleground games spawn many of those between two fighters, and every one used
+    -- to drop the lock for a frame. The ray simply continues behind them (a few times at most).
     local origin = cam().CFrame.Position
-    local res = workspace:Raycast(origin, part.Position - origin, rayParams)
-    return res == nil or res.Instance:IsDescendantOf(char)
+    local goal = part.Position
+    for _ = 1, 5 do
+        local dir = goal - origin
+        local res = workspace:Raycast(origin, dir, rayParams)
+        if res == nil or res.Instance:IsDescendantOf(char) then return true end
+        local hit = res.Instance
+        if hit.CanCollide and hit.Transparency < 0.9 then return false end
+        origin = res.Position + dir.Unit * 0.05
+    end
+    return false
 end
 
 local randomPick = {}
