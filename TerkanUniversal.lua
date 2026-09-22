@@ -49,7 +49,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.3.0"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.4.0"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -186,9 +186,62 @@ local function color(sec, text, key, default, onChange)
 end
 
 local function keybind(sec, text, key, default, callback, onChanged)
-    BIND[key] = sec:Keybind({ Text = text, Default = default, Flag = key, Callback = callback, OnChanged = onChanged })
+    U.BindNames[key] = text
+    BIND[key] = sec:Keybind({ Text = text, Default = default, Flag = key, Callback = callback,
+        OnChanged = function(k)
+            -- a key you set by hand that another keybind already uses: say which one (not while a config loads)
+            if k and U.Ready and not U.LoadingConfig then U.WarnBindClash(key, k) end
+            if onChanged then onChanged(k) end
+        end })
     return BIND[key]
 end
+
+-- keybinds that share one key: pressing it switches BOTH features (e.g. Fly and something else on F)
+U.BindNames = {}
+function U.WarnBindClash(key, code)
+    local users = {}
+    if key ~= "MenuKey" and win.ToggleKey == code then table.insert(users, "Menu Key") end
+    for other, b in pairs(BIND) do
+        if other ~= key and other ~= "MenuKey" and b:Get() == code then table.insert(users, U.BindNames[other] or other) end
+    end
+    if #users > 0 then
+        notify("Keybind", ("%s (%s) is also used by: %s"):format(U.BindNames[key] or key, code.Name, table.concat(users, ", ")), "warn")
+    end
+    return #users > 0
+end
+-- after startup / loading a config: one warning per key that more than one keybind uses
+function U.WarnAllBindClashes()
+    local done = {}
+    for key, b in pairs(BIND) do
+        local code = b:Get()
+        if code and not done[code] and U.WarnBindClash(key, code) then done[code] = true end
+    end
+end
+
+-- The BaseParts of a character, cached: rebuilt only when something is added to or removed from it.
+-- Noclip, Superman noclip and fling touch every part on every physics step.
+function U.CharParts(char)
+    local e = U.partCache
+    if not (e and e.char == char) then
+        if e then for _, c in ipairs(e.conns) do c:Disconnect() end end
+        e = { char = char, dirty = true }
+        local function dirty() e.dirty = true end
+        e.conns = { char.DescendantAdded:Connect(dirty), char.DescendantRemoving:Connect(dirty) }
+        U.partCache = e
+    end
+    if e.dirty then
+        e.dirty = false
+        local list = {}
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BasePart") then list[#list + 1] = d end
+        end
+        e.parts = list
+    end
+    return e.parts
+end
+onUnload(function()
+    if U.partCache then for _, c in ipairs(U.partCache.conns) do c:Disconnect() end end
+end)
 
 -- Every notification belongs to a category, and each category has its own switch on the
 -- Notifications page (C["Notif_<category>"]). Errors always count as "warn" so they cannot be
@@ -450,7 +503,7 @@ function U.isInvisible(char)
     return true
 end
 
--- o: Only (player name: consider nobody else), Origin, FOV (px, nil = no limit), MaxDist, MinDist, Team, NoFF (skip ForceField), NoInvis (skip invisible rigs), Wall, Part, Priority, Sticky (plr)
+-- o: Only (player name: consider nobody else), Skip (set of players to pass over), Origin, FOV (px, nil = no limit), MaxDist, MinDist, Team, NoFF (skip ForceField), NoInvis (skip invisible rigs), Wall, Part, Priority, Sticky (plr)
 local function selectTarget(o)
     local c = cam()
     local origin = o.Origin or viewportCenter()
@@ -462,7 +515,7 @@ local function selectTarget(o)
         local plr = e.plr
         local listed = not (C.ListRespectWhite and U.White[plr.Name])
             and not (C.ListOnlyBlack and anyBlack and not U.Black[plr.Name])
-        if listed and (not o.Only or plr.Name == o.Only) then
+        if listed and (not o.Only or plr.Name == o.Only) and not (o.Skip and o.Skip[plr]) then
             -- same test as charOf(plr, o.AllowDead), on the shared per-frame snapshot
             local char, hum, root = e.char, e.hum, e.root
             if not (hum and root)
@@ -571,14 +624,6 @@ end
 
 U.FireWeapon, U.CursorOverMenu, U.Win = fireWeapon, cursorOverMenu, win   -- exposed for self-tests
 
-local function ensureToolEquipped()
-    local char = lp.Character
-    if not char or char:FindFirstChildOfClass("Tool") then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local tool = lp.Backpack:FindFirstChildOfClass("Tool")
-    if hum and tool then hum:EquipTool(tool) end
-end
-
 local AIM_TYPES = { "Smooth Camera", "Hard Lock", "Snap On Fire", "Mouse Move", "Character Face" }
 local TARGET_PARTS = { "Head", "Torso", "Random", "Closest" }
 local PRIORITIES = { "Closest to Cursor", "Closest Distance", "Lowest Health" }
@@ -607,6 +652,8 @@ slider(aimTune, "FOV Radius", "AimFov", 20, 800, 160, { Suffix = " px" })
 toggle(aimTune, "Team Check", "AimTeam", true)
 toggle(aimTune, "Dead Check", "AimDead", true)
 toggle(aimTune, "Wall Check", "AimWall", true)
+toggle(aimTune, "Skip ForceField", "AimNoFF", true)
+toggle(aimTune, "Skip Invisible Rigs", "AimNoInvis", true)
 toggle(aimTune, "Show FOV Circle", "AimShowFov", true)
 color(aimTune, "FOV Color", "AimFovColor", Color3.fromRGB(255, 255, 255))
 
@@ -638,12 +685,12 @@ renderLast(function(dt)
     if C.AimType == "Snap On Fire" then
         active = active and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
     end
-    -- never fight the user while they are working in the menu
-    if not active or cursorOverMenu() then aimTarget = nil releaseFace() return end
+    -- never fight the user while they are working in the menu, nor Rage while it has a target (both would turn the camera)
+    if not active or cursorOverMenu() or (U.RageTarget and U.RageTarget()) then aimTarget = nil releaseFace() return end
 
     local t = selectTarget({
         Origin = center, FOV = C.AimFov, MaxDist = C.AimDist, Team = C.AimTeam, Wall = C.AimWall,
-        AllowDead = not C.AimDead,
+        AllowDead = not C.AimDead, NoFF = C.AimNoFF, NoInvis = C.AimNoInvis,
         Part = C.AimPart, Priority = C.AimPriority, Sticky = C.AimSticky and aimTarget and aimTarget.plr or nil,
     })
     aimTarget = t
@@ -903,6 +950,12 @@ connect(RunService.RenderStepped, function()
         U.TrigTarget, U.TrigWhy = nil, "hold the trigger key"
         return
     end
+    -- Rage already clicks for its own target: two bots clicking means double shots
+    if U.RageTarget and U.RageTarget() then
+        trigSince = nil
+        U.TrigTarget, U.TrigWhy = nil, "paused: Rage has a target"
+        return
+    end
     local target, why = underCrosshair()
     U.TrigTarget, U.TrigWhy = target, why
     if not target then trigSince = nil return end
@@ -965,6 +1018,16 @@ local rageFilt = rageTab:Section("Filters", "right")
 local rageAbil = rageTab:Section("Abilities")
 local rageMove = rageTab:Section("Positioning & Spin")
 
+-- small state of this tab in one table: the main chunk has (almost) no free local slots
+local R = {
+    AUTO = "Auto", NONE = "No Tool (fists)",
+    skip = {},          -- [plr] = until when Rage passes over that player (gave up: no damage)
+    warned = {},        -- extra keys we already warned about
+    seen = {},          -- every tool name ever listed (only a NEW tool starts ticked as an ability)
+    holdUntil = 0,      -- the ability tool stays in hand until then, afterwards the weapon comes back
+    equipAt = 0, progressAt = 0, whyAt = 0,
+}
+
 toggle(rage, "Enabled", "RageEnabled", false)
 -- while the menu is open Rage does nothing (no clicks, camera, teleport, keys), so the menu is always usable
 -- and you can always switch Rage off; it carries on the moment the menu closes
@@ -1000,6 +1063,8 @@ slider(rage, "Prediction", "RagePredict", 0, 0.3, 0.05, { Decimals = 2, Suffix =
 toggle(rage, "Add Ping To Prediction", "RagePing", false)
 toggle(rage, "Sticky Target", "RageSticky", true)
 slider(rage, "Keep Target At Least", "RageSwitch", 0, 3, 0.4, { Decimals = 1, Suffix = "s" })
+-- a target that takes no damage for this long is passed over for 5 s (unreachable, god mode, stuck in a wall ...)
+slider(rage, "Give Up If No Damage (0 = off)", "RageGiveUp", 0, 15, 4, { Decimals = 1, Suffix = "s" })
 
 toggle(rageFire, "Auto Shoot", "RageShoot", true)
 slider(rageFire, "Shoot Delay", "RageDelay", 0, 1000, 80, { Suffix = " ms" })
@@ -1009,6 +1074,14 @@ slider(rageFire, "Burst Gap", "RageBurstGap", 10, 300, 40, { Suffix = " ms" })
 slider(rageFire, "Only Fire Within", "RageAngle", 1, 180, 180, { Suffix = "°" })
 dropdown(rageFire, "Fire Method", "RageMethod", FIRE_METHODS, "Auto")
 toggle(rageFire, "Auto Equip Tool", "RageEquip", true)
+-- what Rage holds while shooting: Auto = the first tool that is not an ability, No Tool = empty hands
+-- (punch / M1 games), or one tool from your inventory. The list fills itself with your tools.
+C.RageWeapon = R.AUTO
+R.weaponDD = rageFire:Dropdown({ Text = "Weapon", Options = { R.AUTO, R.NONE }, Default = R.AUTO, Flag = "RageWeapon",
+    Callback = function(v)
+        C.RageWeapon = v or R.AUTO
+        if R.refresh then task.defer(R.refresh) end   -- the weapon leaves the ability list at once
+    end })
 slider(rageFire, "Warm-up", "RageWarmup", 0, 3, 1, { Decimals = 1, Suffix = "s" })
 
 toggle(rageFilt, "Team Check", "RageTeam", true)
@@ -1060,15 +1133,22 @@ end
 
 local function refreshAbilities()
     local names = currentToolNames()
-    local sig = table.concat(names, "|")
+    local sig = table.concat(names, "|") .. "#" .. tostring(C.RageWeapon)
     if sig == abilityLast then return end
     abilityLast = sig
-    local known = {}
-    for _, n in ipairs(abilityNames) do known[n] = true end
+    -- weapon list: the fixed choices, every tool, and the chosen weapon even while it is not in the inventory
+    -- (dead, not given yet) - otherwise the dropdown would forget it
+    local weapons = { R.AUTO, R.NONE }
+    for _, n in ipairs(names) do table.insert(weapons, n) end
+    if not table.find(weapons, C.RageWeapon) then table.insert(weapons, C.RageWeapon) end
+    R.weaponDD:SetOptions(weapons)
     for _, n in ipairs(names) do
         if not slotOf[n] then slotOf[n], nextSlot = nextSlot, nextSlot + 1 end
-        if not known[n] then chosenTools[n] = true end   -- a new tool starts ticked
+        if not R.seen[n] then R.seen[n], chosenTools[n] = true, true end   -- a new tool starts ticked
     end
+    -- the weapon is never also used as an ability
+    local i = table.find(names, C.RageWeapon)
+    if i then table.remove(names, i) end
     abilityNames = names
     abilityDD:SetOptions(names)
     local picked = {}
@@ -1082,16 +1162,35 @@ abilityDD = rageAbil:Dropdown({ Text = "Abilities To Use", Options = {}, Multi =
         for _, n in ipairs(picked) do set[n] = true end
         for _, n in ipairs(abilityNames) do chosenTools[n] = set[n] or nil end
     end })
+-- Rage presses keys through VirtualInputManager, which this menu sees as real key presses: a key that is
+-- also a menu keybind (F = Fly, G = Telekinesis fire, V = Rage key ...) would switch that feature on and
+-- off every few hundred ms. Such keys are skipped, with one warning per key.
+function R.menuKey(code)
+    if win.ToggleKey == code then return true end
+    for _, b in pairs(BIND) do
+        if b:Get() == code then return true end
+    end
+    return false
+end
+function R.warnKey(k)
+    if R.warned[k] then return end
+    R.warned[k] = true
+    notify("Rage", "Extra key " .. k .. " is skipped: a menu keybind already uses it", "warn")
+end
+
 rageAbil:Dropdown({ Text = "Extra Keys", Options = EXTRA_KEYS, Multi = true, Flag = "RageExtraKeys",
     Callback = function(picked)
-        chosenKeys = {}
+        chosenKeys, R.warned = {}, {}
         for _, k in ipairs(picked) do chosenKeys[k] = true end
     end })
-dropdown(rageAbil, "Ability Method", "RageAbilityMethod", { "Hotbar Key", "Equip + Activate" }, "Hotbar Key")
+-- Equip + Activate puts the tool in your hand directly; Hotbar Key presses its number key instead
+-- (the slot number is a guess: the order in which the tools were first seen)
+dropdown(rageAbil, "Ability Method", "RageAbilityMethod", { "Equip + Activate", "Hotbar Key" }, "Equip + Activate")
 slider(rageAbil, "Ability Range", "RageAbilityRange", 3, 150, 14, { Suffix = " st" })
 slider(rageAbil, "Delay Between Abilities", "RageAbilityDelay", 50, 2000, 350, { Suffix = " ms" })
 slider(rageAbil, "Cooldown Per Ability", "RageAbilityCd", 0, 20, 2, { Decimals = 1, Suffix = "s" })
 
+R.refresh = refreshAbilities
 refreshAbilities()
 task.spawn(function()
     while U.Running do
@@ -1117,7 +1216,9 @@ local function useAbility(now, t, off)
         if chosenTools[n] and (abilityReady["t:" .. n] or 0) <= now then table.insert(ready, { tool = n }) end
     end
     for _, k in ipairs(EXTRA_KEYS) do
-        if chosenKeys[k] and (abilityReady["k:" .. k] or 0) <= now then table.insert(ready, { key = k }) end
+        if chosenKeys[k] and (abilityReady["k:" .. k] or 0) <= now then
+            if R.menuKey(Enum.KeyCode[k]) then R.warnKey(k) else table.insert(ready, { key = k }) end
+        end
     end
     if #ready == 0 then return end
 
@@ -1127,21 +1228,103 @@ local function useAbility(now, t, off)
         pressKey(Enum.KeyCode[pick.key])
         abilityReady["k:" .. pick.key] = now + C.RageAbilityCd
     else
-        if C.RageAbilityMethod == "Equip + Activate" then
-            local tool = (lp.Character and lp.Character:FindFirstChild(pick.tool)) or lp.Backpack:FindFirstChild(pick.tool)
-            local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
-            if tool and hum then
-                if tool.Parent ~= lp.Character then hum:EquipTool(tool) end
+        local char = lp.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local held = char and char:FindFirstChild(pick.tool)
+        local slot = SLOT_KEYS[slotOf[pick.tool] or 99]
+        if held and held:IsA("Tool") then
+            held:Activate()   -- already in hand: its hotbar key would put it AWAY again
+        elseif C.RageAbilityMethod == "Hotbar Key" and slot and not R.menuKey(slot) then
+            pressKey(slot)
+        else
+            local tool = lp.Backpack:FindFirstChild(pick.tool)
+            if tool and tool:IsA("Tool") and hum then
+                hum:EquipTool(tool)
                 tool:Activate()
             end
-        elseif SLOT_KEYS[slotOf[pick.tool] or 99] then
-            pressKey(SLOT_KEYS[slotOf[pick.tool]])
         end
         abilityReady["t:" .. pick.tool] = now + C.RageAbilityCd
+        -- keep the ability tool in hand for a moment, then the weapon comes back (R.equipWeapon)
+        R.holdUntil = now + math.min(C.RageAbilityDelay / 1000, 0.5)
     end
     nextAbility = now + C.RageAbilityDelay / 1000
 end
 U.RageAbilityState = function() return abilityNames, chosenTools, chosenKeys end   -- self-tests
+
+-- puts the chosen weapon in hand (not while an ability tool is still being used); a few times a second at most
+function R.equipWeapon(now)
+    if not C.RageEquip or now < R.holdUntil or now < R.equipAt then return end
+    R.equipAt = now + 0.15
+    local char = lp.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    local held = char:FindFirstChildOfClass("Tool")
+    local w = C.RageWeapon
+    local function isAbility(name) return C.RageAbilitiesOn and chosenTools[name] and name ~= w end
+    if w == R.NONE then
+        if held then hum:UnequipTools() end
+    elseif w == R.AUTO then
+        if held and not isAbility(held.Name) then return end
+        for _, x in ipairs(lp.Backpack:GetChildren()) do
+            if x:IsA("Tool") and not isAbility(x.Name) then hum:EquipTool(x) return end
+        end
+        if held then hum:UnequipTools() end   -- only abilities in the inventory: fight with empty hands
+    elseif not (held and held.Name == w) then
+        local x = lp.Backpack:FindFirstChild(w)
+        if x and x:IsA("Tool") then hum:EquipTool(x) end
+    end
+end
+
+-- a spot Rage may put the character on: a real number, and not in (or under) the void
+function R.safeSpot(p)
+    if p.X ~= p.X or p.Y ~= p.Y or p.Z ~= p.Z or p.Magnitude > 1e5 then return false end
+    local floor = workspace.FallenPartsDestroyHeight
+    if floor ~= floor then floor = -1000 end   -- NaN in some games
+    return p.Y > math.max(floor, -1000) + 20
+end
+
+-- after teleporting every frame the physics has built up speed: drop it, or the character shoots away
+function R.stopPos()
+    R.positioned = false
+    local _, _, root = charOf(lp)
+    if root then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
+-- why there is no target: the reason of the nearest player that was passed over (for the status text)
+function R.noTargetWhy()
+    local camPos = cam().CFrame.Position
+    local anyBlack = next(U.Black) ~= nil
+    local why, bestDist = nil, math.huge
+    for _, e in ipairs(U.Others()) do
+        local plr, char, hum, root = e.plr, e.char, e.hum, e.root
+        if C.RageWho == RAGE_AUTO or plr.Name == C.RageWho then
+            local r
+            local dist = root and (root.Position - camPos).Magnitude or 1e9
+            if C.ListRespectWhite and U.White[plr.Name] then r = "whitelisted"
+            elseif C.ListOnlyBlack and anyBlack and not U.Black[plr.Name] then r = "not on blacklist"
+            elseif R.skip[plr] then r = "gave up, no damage"
+            elseif not (char and hum and root) then r = "no character"
+            elseif C.RageDead and hum.Health <= 0 then r = "dead"
+            elseif C.RageTeam and sameTeam(plr) then r = "teammate"
+            elseif C.RageNoFF and char:FindFirstChildOfClass("ForceField") then r = "forcefield"
+            elseif C.RageNoInvis and U.isInvisible(char) then r = "invisible"
+            elseif dist > C.RageDist then r = "too far"
+            elseif dist < C.RageMinDist then r = "too close"
+            else
+                local part = char:FindFirstChild("Head") or root
+                local sp, on = screenPoint(part.Position)
+                if C.RageFov > 0 and not (on and (sp - cursorOrCenter(false)).Magnitude <= C.RageFov) then r = "outside FOV"
+                elseif not C.RageIgnoreWalls then r = "behind wall" end
+            end
+            if r and dist < bestDist then why, bestDist = r, dist end
+        end
+    end
+    if C.RageWho ~= RAGE_AUTO and not Players:FindFirstChild(C.RageWho) then return "not in server" end
+    return why or (#U.Others() == 0 and "no other players" or nil)
+end
 
 local rageState, rageOnAt = "off", 0   -- "off" | "loading" | "active"; driven by the status pill below
 local rageLockedAt, rageKills = 0, 0
@@ -1150,6 +1333,7 @@ local rageSpun = false                  -- true while WE have AutoRotate switche
 
 local function rageReset()
     rageTarget, burstLeft = nil, 0
+    if R.positioned then R.stopPos() end
     if rageSpun then
         rageSpun = false
         local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
@@ -1205,8 +1389,11 @@ renderLast(function(dt)
     -- keep the current target for a minimum time (or forever when Sticky) so it does not flicker
     local prev = rageTarget
     local keep = prev and (C.RageSticky or now - rageLockedAt < C.RageSwitch)
+    for plr, untilT in pairs(R.skip) do
+        if untilT <= now then R.skip[plr] = nil end
+    end
     local t = selectTarget({
-        Only = C.RageWho ~= RAGE_AUTO and C.RageWho or nil,
+        Only = C.RageWho ~= RAGE_AUTO and C.RageWho or nil, Skip = R.skip,
         FOV = C.RageFov > 0 and C.RageFov or nil, MaxDist = C.RageDist, MinDist = C.RageMinDist,
         Team = C.RageTeam, NoFF = C.RageNoFF, NoInvis = C.RageNoInvis, Wall = not C.RageIgnoreWalls, AllowDead = not C.RageDead,
         Part = C.RagePart, Priority = C.RagePriority, Origin = cursorOrCenter(false),
@@ -1218,8 +1405,27 @@ renderLast(function(dt)
         burstLeft = 0
     end
     if t and (not prev or t.plr ~= prev.plr) then rageLockedAt = now end
+
+    -- give up on a target that takes no damage for a while (unreachable, god mode, stuck in a wall ...):
+    -- pass over it for 5 s. Not for one chosen player (there is nobody else), and only while Rage attacks.
+    if t and C.RageGiveUp > 0 and C.RageWho == RAGE_AUTO and (C.RageShoot or C.RageAbilitiesOn) then
+        local hp = t.hum.Health
+        if t.plr ~= R.hpPlr then R.hpPlr, R.progressAt = t.plr, now
+        elseif hp < R.hp then R.progressAt = now end
+        R.hp = hp
+        if now - R.progressAt > C.RageGiveUp then
+            R.skip[t.plr], R.hpPlr, burstLeft = now + 5, nil, 0
+            t = nil
+        end
+    end
+
     rageTarget = t
-    if not t then return end
+    if not t then
+        if R.positioned then R.stopPos() end
+        if now - R.whyAt > 0.25 then R.whyAt, R.why = now, R.noTargetWhy() end
+        return
+    end
+    R.why = nil
 
     if C.RagePosition ~= "Off" then
         local base = t.root.CFrame
@@ -1227,14 +1433,24 @@ renderLast(function(dt)
         if C.RagePosSmooth > 0 then
             spot = root.Position:Lerp(spot, 1 - (C.RagePosSmooth / 100) ^ (math.min(dt, 0.1) * 60))
         end
-        -- stay upright: face the target on our own height. Straight above/below it there is no
-        -- horizontal direction (lookAt would produce a NaN CFrame), so keep the current yaw then.
-        local flat = Vector3.new(base.Position.X - spot.X, 0, base.Position.Z - spot.Z)
-        if flat.Magnitude > 0.05 then
-            root.CFrame = CFrame.lookAt(spot, spot + flat)
-        else
-            root.CFrame = CFrame.new(spot) * root.CFrame.Rotation
+        -- never follow a target into the void or to a broken (NaN / far away) position
+        if R.safeSpot(spot) then
+            -- stay upright: face the target on our own height. Straight above/below it there is no
+            -- horizontal direction (lookAt would produce a NaN CFrame), so keep the current yaw then.
+            local flat = Vector3.new(base.Position.X - spot.X, 0, base.Position.Z - spot.Z)
+            if flat.Magnitude > 0.05 then
+                root.CFrame = CFrame.lookAt(spot, spot + flat)
+            else
+                root.CFrame = CFrame.new(spot) * root.CFrame.Rotation
+            end
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            R.positioned = true
+        elseif R.positioned then
+            R.stopPos()
         end
+    elseif R.positioned then
+        R.stopPos()
     end
 
     local c = cam()
@@ -1248,6 +1464,7 @@ renderLast(function(dt)
 
     local off = math.deg(math.acos(math.clamp(c.CFrame.LookVector:Dot((aimAt - c.CFrame.Position).Unit), -1, 1)))
     useAbility(now, t, off)
+    R.equipWeapon(now)
     if not C.RageShoot then return end
     if off > C.RageAngle then return end
 
@@ -1258,7 +1475,6 @@ renderLast(function(dt)
     end
     if burstLeft == 0 and now >= nextBurst then burstLeft = C.RageBurst end
     if burstLeft > 0 and now >= nextShot then
-        if C.RageEquip then ensureToolEquipped() end
         fireWeapon(C.RageMethod)
         burstLeft -= 1
         nextShot = now + C.RageBurstGap / 1000
@@ -1323,10 +1539,13 @@ renderLast(function(dt)
             text = "RAGE READY" .. kills
         elseif rageTarget then
             text = "RAGE ACTIVE  ·  " .. rageTarget.plr.DisplayName .. kills
-        elseif C.RageWho ~= RAGE_AUTO then
-            text = "RAGE ACTIVE  ·  waiting for " .. C.RageWho .. kills
         else
-            text = "RAGE ACTIVE" .. kills
+            local why = R.why and (" (" .. R.why .. ")") or ""
+            if C.RageWho ~= RAGE_AUTO then
+                text = "RAGE ACTIVE  ·  waiting for " .. C.RageWho .. why .. kills
+            else
+                text = "RAGE ACTIVE  ·  no target" .. why .. kills
+            end
         end
     end
 
@@ -2342,13 +2561,10 @@ connect(UserInputService.JumpRequest, function()
     end
 end)
 
+-- Anti Stun: the routine itself is at the bottom of this tab (shared with Defense > Anti Ragdoll)
 toggle(move, "Anti Stun", "AntiStun", false, function(v)
     local hum = myHumanoid()
-    if not hum then return end
-    pcall(function()
-        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, not v)
-        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, not v)
-    end)
+    if hum and U.StunStates then U.StunStates(hum, v) end
 end)
 
 -- fly ------------------------------------------------------------------
@@ -2401,7 +2617,7 @@ onUnload(stopFly)
 
 -- noclip -----------------------------------------------------------------
 
-local noclipOriginal = {}
+local noclipOriginal = setmetatable({}, { __mode = "k" })   -- weak: parts of old characters are forgotten
 toggle(fly, "Noclip", "Noclip", false, function(v)
     if not v then
         for part, was in pairs(noclipOriginal) do
@@ -2415,8 +2631,8 @@ local function applyNoclip()
     if not (C.Noclip and U.Running) then return end
     local _, _, char = myHumanoid()
     if not char then return end
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.CanCollide then
+    for _, part in ipairs(U.CharParts(char)) do
+        if part.CanCollide then
             if noclipOriginal[part] == nil then noclipOriginal[part] = true end
             part.CanCollide = false
         end
@@ -2424,42 +2640,103 @@ local function applyNoclip()
 end
 connect(RunService.Stepped, applyNoclip)
 
--- speed / jump / anti stun locks (Last priority beats the game's own scripts) ---
+-- anti stun + anti ragdoll ------------------------------------------------------
+-- ONE routine for two switches, so they never run twice or undo each other:
+--   Movement > Anti Stun      always: every down / ragdoll / stun state and every stun flag, whatever caused it
+--   Defense  > Anti Ragdoll   only while the game has flagged us. The Strongest Battlegrounds uses Accessory
+--                             instances: "Ragdoll" / "RagdollSim" = ragdolled, "Freeze" = hit stun (that one only
+--                             with Cancel Hit Stun). Other games use similar names or attributes, also checked.
+-- Nothing of the game is deleted; the server may still think we are stunned, so moves it checks itself can stay blocked.
+do
+local STUN_FLAGS = { "Ragdoll", "RagdollSim", "Freeze", "Stun", "Stunned", "Knocked", "Downed", "NoMove", "NoMovement" }
+local DOWN_STATES = {
+    [Enum.HumanoidStateType.Ragdoll] = true, [Enum.HumanoidStateType.FallingDown] = true,
+    [Enum.HumanoidStateType.Physics] = true, [Enum.HumanoidStateType.PlatformStanding] = true,
+}
+local good = { speed = 16, jump = 50, height = 7.2 }   -- our last normal values, put back while stunned
+local st = { scanAt = 0, controlsAt = 0 }
 
-local lastGoodSpeed, lastGoodJump, antiStunScan = 16, 50, 0
+-- the humanoid refuses to ragdoll / fall down at all; a new humanoid (respawn) needs it again
+function U.StunStates(hum, off)
+    pcall(function()
+        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, not off)
+        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, not off)
+    end)
+end
+
+local function stunFlag(char, hum)
+    for _, n in ipairs(STUN_FLAGS) do
+        if char:FindFirstChild(n) or char:GetAttribute(n) or hum:GetAttribute(n) then return n end
+    end
+end
+
 renderLast(function()
     if not U.Running then return end
-    local hum, root = myHumanoid()
-    if not hum then return end
+    local hum, root, char = myHumanoid()
+    if not (hum and root) then return end
 
-    if hum.WalkSpeed > 0 then lastGoodSpeed = hum.WalkSpeed end
-    if hum.JumpPower > 0 then lastGoodJump = hum.JumpPower end
+    if st.hum ~= hum then
+        st.hum = hum
+        if C.AntiStun then U.StunStates(hum, true) end
+    end
 
-    if C.AntiStun and not C.FlyEnabled and not C.SuperFly and not C.LayDown then
+    local flag = (C.AntiStun or C.AntiRagdoll) and stunFlag(char, hum)
+    if not flag then
+        if hum.WalkSpeed >= 4 then good.speed = hum.WalkSpeed end
+        if hum.JumpPower >= 5 then good.jump = hum.JumpPower end
+        if hum.JumpHeight >= 1 then good.height = hum.JumpHeight end
+    end
+    local act = C.AntiStun or (C.AntiRagdoll and flag and (flag ~= "Freeze" or C.AntiRagdollStun))
+    if not act then return end
+
+    -- our own features that lie down / float on purpose
+    local ours = C.FlyEnabled or C.SuperFly or C.LayDown
+    if not ours then
         if hum.PlatformStand then hum.PlatformStand = false end
-        local state = hum:GetState()
-        if state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown
-            or state == Enum.HumanoidStateType.Physics then
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-        if hum.WalkSpeed < 1 then hum.WalkSpeed = lastGoodSpeed end
-        if hum.UseJumpPower and hum.JumpPower < 1 then hum.JumpPower = lastGoodJump end
-        if root and root.Anchored then root.Anchored = false end
+        if DOWN_STATES[hum:GetState()] then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+    end
+    if root.Anchored then root.Anchored = false end
+    if hum.WalkSpeed < 4 then hum.WalkSpeed = good.speed end
+    if hum.UseJumpPower then
+        if hum.JumpPower < 5 then hum.JumpPower = good.jump end
+    elseif hum.JumpHeight < 1 then
+        hum.JumpHeight = good.height
+    end
 
-        -- ragdoll systems break the joints; re-enable them (scanned 4x a second, not every frame)
-        if os.clock() - antiStunScan > 0.25 then
-            antiStunScan = os.clock()
-            local _, _, char = myHumanoid()
-            if char then
-                for _, d in ipairs(char:GetDescendants()) do
-                    if d:IsA("Motor6D") and not d.Enabled then d.Enabled = true
-                    elseif d:IsA("BallSocketConstraint") and d.Enabled then d.Enabled = false end
-                end
+    local now = os.clock()
+    -- 4x a second: joints back on, ragdoll sockets off, nothing of us anchored, and (while flagged)
+    -- no game mover that pins us to a spot. We create no movers ourselves, so every one is the game's.
+    if now - st.scanAt > 0.25 then
+        st.scanAt = now
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("Motor6D") then
+                if not d.Enabled then d.Enabled = true end
+            elseif d:IsA("BallSocketConstraint") then
+                if d.Enabled and not ours then d.Enabled = false end
+            elseif d:IsA("BasePart") then
+                if d.Anchored then d.Anchored = false end
+            elseif flag and (d:IsA("AlignPosition") or d:IsA("AlignOrientation")) then
+                if d.Enabled then d.Enabled = false end
+            elseif flag and d:IsA("BodyPosition") then
+                d.MaxForce = Vector3.zero
+            elseif flag and d:IsA("BodyGyro") then
+                d.MaxTorque = Vector3.zero
             end
         end
     end
+    -- some games switch the movement controls off during a stun: switch them back on (twice a second)
+    if flag and now - st.controlsAt > 0.5 then
+        st.controlsAt = now
+        pcall(function()
+            if not U.controls then
+                local pm = lp:FindFirstChildOfClass("PlayerScripts") and lp.PlayerScripts:FindFirstChild("PlayerModule")
+                U.controls = pm and require(pm):GetControls()
+            end
+            if U.controls then U.controls:Enable() end
+        end)
+    end
 end)
-
+end   -- anti stun
 ----------------------------------------------------------------------
 -- tab: Defense (anti fling / anti void / anti aim)
 ----------------------------------------------------------------------
@@ -2541,44 +2818,7 @@ end)
 toggle(arSec, "Anti Ragdoll", "AntiRagdoll", false)
 toggle(arSec, "Cancel Hit Stun", "AntiRagdollStun", false)
 
-local ragSpeed, ragJump, ragScan = 16, 50, 0
-renderLast(function()
-    if not (C.AntiRagdoll and U.Running) then return end
-    local hum, root, char = myHumanoid()
-    if not (hum and root) then return end
-
-    local ragged = char:FindFirstChild("Ragdoll") or char:FindFirstChild("RagdollSim")
-    local stunned = C.AntiRagdollStun and char:FindFirstChild("Freeze")
-    if not (ragged or stunned) then
-        -- remember our normal values so they can be put back afterwards
-        if hum.WalkSpeed > 0 then ragSpeed = hum.WalkSpeed end
-        if hum.JumpPower > 0 then ragJump = hum.JumpPower end
-        return
-    end
-
-    if ragged and not C.FlyEnabled then
-        if hum.PlatformStand then hum.PlatformStand = false end
-        local state = hum:GetState()
-        if state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.PlatformStanding
-            or state == Enum.HumanoidStateType.Ragdoll then
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-        if root.Anchored then root.Anchored = false end
-        if os.clock() - ragScan > 0.25 then
-            ragScan = os.clock()
-            for _, d in ipairs(char:GetDescendants()) do
-                if d:IsA("Motor6D") and not d.Enabled then d.Enabled = true end
-            end
-        end
-    end
-    if ragged or stunned then
-        if hum.WalkSpeed < 1 then hum.WalkSpeed = ragSpeed end
-        if hum.JumpPower < 1 then
-            hum.UseJumpPower = true
-            hum.JumpPower = ragJump
-        end
-    end
-end)
+-- the routine is shared with Movement > Anti Stun: see "anti stun + anti ragdoll" at the bottom of the Movement tab
 
 -- anti void -------------------------------------------------------------
 -- remembers the last solid ground you stood on; if you drop under the rescue line
@@ -2901,6 +3141,8 @@ keybind(tp, "Click TP Key", "ClickTpKey", Enum.KeyCode.LeftControl)
 connect(UserInputService.InputBegan, function(input, gp)
     if gp or not C.ClickTp or input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
     if not (BIND.ClickTpKey and BIND.ClickTpKey:IsDown()) then return end
+    -- Fly goes down with LeftControl (the default Click TP key): clicking while descending must not teleport
+    if C.FlyEnabled then return end
     local pos = UserInputService:GetMouseLocation()
     local ray = cam():ViewportPointToRay(pos.X, pos.Y)
     rayParams.FilterDescendantsInstances = { lp.Character }
@@ -3339,8 +3581,8 @@ connect(RunService.Stepped, function()
     if not (flingBusy and U.Running) then return end
     local _, _, char = myHumanoid()
     if not char then return end
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.CanCollide then
+    for _, part in ipairs(U.CharParts(char)) do
+        if part.CanCollide then
             if savedCollide[part] == nil then savedCollide[part] = true end
             part.CanCollide = false
         end
@@ -4451,8 +4693,8 @@ connect(RunService.Heartbeat, function(dt)
 
     if C.SuperNoclip then
         superSaved = superSaved or setmetatable({}, { __mode = "k" })
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
+        for _, part in ipairs(U.CharParts(char)) do
+            if part.CanCollide then
                 if superSaved[part] == nil then superSaved[part] = true end
                 part.CanCollide = false
             end
@@ -5925,7 +6167,7 @@ cfgSec:Button({ Text = "Load Config", Callback = function()
     local name = C._cfgList
     if not name then notify("Config", "Select a config in the list first", "warn") return end
     U.LoadingConfig = true                              -- setting many switches at once must not toast each one
-    task.delay(0.8, function() U.LoadingConfig = false end)
+    task.delay(0.8, function() U.LoadingConfig = false U.WarnAllBindClashes() end)
     local ok, res = win:LoadConfig(name)
     if ok then notify("Config", ("Loaded '%s' (%d settings)"):format(name, res), "success")
     else notify("Config", tostring(res), "error") end
@@ -6110,6 +6352,7 @@ task.defer(function()
     task.delay(0.8, function()
         U.LoadingConfig = false
         U.Ready = true          -- from here on, switching a feature may notify
+        U.WarnAllBindClashes()
     end)
 end)
 

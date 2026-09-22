@@ -36,7 +36,7 @@ cfgSec:Button({ Text = "Load Config", Callback = function()
     local name = C._cfgList
     if not name then notify("Config", "Select a config in the list first", "warn") return end
     U.LoadingConfig = true                              -- setting many switches at once must not toast each one
-    task.delay(0.8, function() U.LoadingConfig = false end)
+    task.delay(0.8, function() U.LoadingConfig = false U.WarnAllBindClashes() end)
     local ok, res = win:LoadConfig(name)
     if ok then notify("Config", ("Loaded '%s' (%d settings)"):format(name, res), "success")
     else notify("Config", tostring(res), "error") end
@@ -221,6 +221,7 @@ task.defer(function()
     task.delay(0.8, function()
         U.LoadingConfig = false
         U.Ready = true          -- from here on, switching a feature may notify
+        U.WarnAllBindClashes()
     end)
 end)
 

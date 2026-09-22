@@ -49,7 +49,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.3.0"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.4.0"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -186,9 +186,62 @@ local function color(sec, text, key, default, onChange)
 end
 
 local function keybind(sec, text, key, default, callback, onChanged)
-    BIND[key] = sec:Keybind({ Text = text, Default = default, Flag = key, Callback = callback, OnChanged = onChanged })
+    U.BindNames[key] = text
+    BIND[key] = sec:Keybind({ Text = text, Default = default, Flag = key, Callback = callback,
+        OnChanged = function(k)
+            -- a key you set by hand that another keybind already uses: say which one (not while a config loads)
+            if k and U.Ready and not U.LoadingConfig then U.WarnBindClash(key, k) end
+            if onChanged then onChanged(k) end
+        end })
     return BIND[key]
 end
+
+-- keybinds that share one key: pressing it switches BOTH features (e.g. Fly and something else on F)
+U.BindNames = {}
+function U.WarnBindClash(key, code)
+    local users = {}
+    if key ~= "MenuKey" and win.ToggleKey == code then table.insert(users, "Menu Key") end
+    for other, b in pairs(BIND) do
+        if other ~= key and other ~= "MenuKey" and b:Get() == code then table.insert(users, U.BindNames[other] or other) end
+    end
+    if #users > 0 then
+        notify("Keybind", ("%s (%s) is also used by: %s"):format(U.BindNames[key] or key, code.Name, table.concat(users, ", ")), "warn")
+    end
+    return #users > 0
+end
+-- after startup / loading a config: one warning per key that more than one keybind uses
+function U.WarnAllBindClashes()
+    local done = {}
+    for key, b in pairs(BIND) do
+        local code = b:Get()
+        if code and not done[code] and U.WarnBindClash(key, code) then done[code] = true end
+    end
+end
+
+-- The BaseParts of a character, cached: rebuilt only when something is added to or removed from it.
+-- Noclip, Superman noclip and fling touch every part on every physics step.
+function U.CharParts(char)
+    local e = U.partCache
+    if not (e and e.char == char) then
+        if e then for _, c in ipairs(e.conns) do c:Disconnect() end end
+        e = { char = char, dirty = true }
+        local function dirty() e.dirty = true end
+        e.conns = { char.DescendantAdded:Connect(dirty), char.DescendantRemoving:Connect(dirty) }
+        U.partCache = e
+    end
+    if e.dirty then
+        e.dirty = false
+        local list = {}
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BasePart") then list[#list + 1] = d end
+        end
+        e.parts = list
+    end
+    return e.parts
+end
+onUnload(function()
+    if U.partCache then for _, c in ipairs(U.partCache.conns) do c:Disconnect() end end
+end)
 
 -- Every notification belongs to a category, and each category has its own switch on the
 -- Notifications page (C["Notif_<category>"]). Errors always count as "warn" so they cannot be
@@ -450,7 +503,7 @@ function U.isInvisible(char)
     return true
 end
 
--- o: Only (player name: consider nobody else), Origin, FOV (px, nil = no limit), MaxDist, MinDist, Team, NoFF (skip ForceField), NoInvis (skip invisible rigs), Wall, Part, Priority, Sticky (plr)
+-- o: Only (player name: consider nobody else), Skip (set of players to pass over), Origin, FOV (px, nil = no limit), MaxDist, MinDist, Team, NoFF (skip ForceField), NoInvis (skip invisible rigs), Wall, Part, Priority, Sticky (plr)
 local function selectTarget(o)
     local c = cam()
     local origin = o.Origin or viewportCenter()
@@ -462,7 +515,7 @@ local function selectTarget(o)
         local plr = e.plr
         local listed = not (C.ListRespectWhite and U.White[plr.Name])
             and not (C.ListOnlyBlack and anyBlack and not U.Black[plr.Name])
-        if listed and (not o.Only or plr.Name == o.Only) then
+        if listed and (not o.Only or plr.Name == o.Only) and not (o.Skip and o.Skip[plr]) then
             -- same test as charOf(plr, o.AllowDead), on the shared per-frame snapshot
             local char, hum, root = e.char, e.hum, e.root
             if not (hum and root)
@@ -570,14 +623,6 @@ local function fireWeapon(method, at)
 end
 
 U.FireWeapon, U.CursorOverMenu, U.Win = fireWeapon, cursorOverMenu, win   -- exposed for self-tests
-
-local function ensureToolEquipped()
-    local char = lp.Character
-    if not char or char:FindFirstChildOfClass("Tool") then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local tool = lp.Backpack:FindFirstChildOfClass("Tool")
-    if hum and tool then hum:EquipTool(tool) end
-end
 
 local AIM_TYPES = { "Smooth Camera", "Hard Lock", "Snap On Fire", "Mouse Move", "Character Face" }
 local TARGET_PARTS = { "Head", "Torso", "Random", "Closest" }

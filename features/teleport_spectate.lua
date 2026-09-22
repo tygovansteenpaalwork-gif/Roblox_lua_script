@@ -54,6 +54,8 @@ keybind(tp, "Click TP Key", "ClickTpKey", Enum.KeyCode.LeftControl)
 connect(UserInputService.InputBegan, function(input, gp)
     if gp or not C.ClickTp or input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
     if not (BIND.ClickTpKey and BIND.ClickTpKey:IsDown()) then return end
+    -- Fly goes down with LeftControl (the default Click TP key): clicking while descending must not teleport
+    if C.FlyEnabled then return end
     local pos = UserInputService:GetMouseLocation()
     local ray = cam():ViewportPointToRay(pos.X, pos.Y)
     rayParams.FilterDescendantsInstances = { lp.Character }

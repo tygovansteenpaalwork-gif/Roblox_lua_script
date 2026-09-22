@@ -239,11 +239,11 @@ feature("fly", "Fly", "Fly with the root's velocity (no body movers), vertical s
         [("at:^-- fly ---", "at:^-- noclip ---")],
         tab="Fly", tabvar="moveTab", secs=[("fly", "Flight & Collision", None)])
 feature("noclip", "Noclip", "Walk through walls.",
-        [("at:^-- noclip ---", "at:^-- speed / jump / anti stun locks")],
+        [("at:^-- noclip ---", "at:^-- anti stun \\+ anti ragdoll")],
         tab="Noclip", tabvar="moveTab", secs=[("fly", "Flight & Collision", None)])
 feature("speed_jump", "Speed & Jump", "Speed, jump power, infinite jump and anti stun. WalkSpeed / JumpPower are not touched: the CFrame mover does the work.",
         [("at:^local orig = \\{\\}", "at:^-- fly ---"),
-         ("at:^-- speed / jump / anti stun locks", "before:Defense"),
+         ("at:^-- anti stun \\+ anti ragdoll", "before:Defense"),
          ("at:^local function keyDown", "at:^-- telekinesis ---")],
         tab="Speed & Jump", tabvar="moveTab",
         secs=[("move", "Speed & Jump", None), ("cfSec", "CFrame Speed", None), ("cfFlySec", "CFrame Fly & Dash", "right")])
@@ -258,7 +258,8 @@ feature("anti_fling", "Anti Fling", "Stops other players' bodies from flinging y
         [("at:^-- anti fling ---", "at:^-- anti ragdoll ---")],
         tab="Anti Fling", tabvar="defTab", secs=[("aflSec", "Anti Fling", None)])
 feature("anti_ragdoll", "Anti Ragdoll", "Refuses the ragdoll / hit-stun state (made for The Strongest Battlegrounds).",
-        [("at:^-- anti ragdoll ---", "at:^-- anti void ---")],
+        [("at:^-- anti ragdoll ---", "at:^-- anti void ---"),
+         ("at:^-- anti stun \\+ anti ragdoll", "before:Defense")],
         tab="Anti Ragdoll", tabvar="defTab", secs=[("arSec", "Anti Ragdoll", None)])
 feature("anti_void", "Anti Void", "Puts you back on the last solid ground when you fall below the map.",
         [("at:^-- anti void ---", "at:^-- anti aim \\+ desync")],

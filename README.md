@@ -53,6 +53,18 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.4.0
+
+- **Rage kiest je wapen.** Onder *Firing* staat **Weapon**: `Auto` (de eerste tool die geen ability is), `No Tool (fists)` of een tool uit je inventory. Na een ability pakt Rage je wapen terug, en het wapen staat nooit tussen de abilities.
+- **Rage loopt niet meer vast.** Extra Keys die al een menu-sneltoets zijn (zoals F = Fly) worden overgeslagen, abilities worden direct in je hand gezet (standaard *Equip + Activate*), en bij *Position* wordt je snelheid elke frame op nul gezet en volg je een target nooit de void in.
+- **Give Up If No Damage.** Een target dat een paar seconden geen schade krijgt, slaat Rage 5 seconden over. De status zegt nu ook waarom er geen target is (`no target (behind wall)`, `too far`, `teammate` ...).
+- **Rage gaat voor.** Aimbot en Triggerbot pauzeren zolang Rage een target heeft, zodat ze niet tegelijk aan je camera trekken of dubbel schieten.
+- **Anti Stun en Anti Ragdoll zijn één routine** en werken nu ook na een respawn. Ze herkennen meer stun-markeringen, zetten een verlaagde loopsnelheid terug, maken vastgezette onderdelen los en zetten tijdens een stun je besturing weer aan.
+- **Dubbele sneltoetsen** geven een melding met de functies die dezelfde toets gebruiken.
+- **Aimbot** heeft nu ook *Skip ForceField* en *Skip Invisible Rigs*.
+- **Click TP** doet niets zolang Fly aan staat (beide gebruiken Ctrl).
+- **Noclip, Superman Fly en Fling** delen één lijst met onderdelen in plaats van je karakter elke physics-stap opnieuw te doorzoeken.
+
 ## Nieuw in 2.3.0
 
 - **Library.** Eén ingang voor alles: `Terkan.lua` laadt de hub, elk los bestand of alleen de UI-bibliotheek. Zie [Library](#library).
@@ -122,7 +134,7 @@ Zolang de Trigger aan staat, laat een **statusregel onder je richtkruis** zien w
 
 Een complete automatische gevechtsmodule: doelkeuze (iedereen of één gekozen speler), minimale en maximale afstand, FOV-limiet, aim-gladheid, voorspelling die rekening houdt met ping, burst-vuur, schietvertraging met jitter, vuurkegel, ForceField overslaan, positionering (achter, boven, onder, cirkel of heen-en-weer) en een spinbot. De vuurmethode **Auto** stuurt een klik in het spel en valt terug op `Tool:Activate` of `mouse1click`. Optioneel gebruikt hij automatisch je vaardigheden: hij drukt je hotbar-slots en extra toetsen in een rotatie met een eigen cooldown per vaardigheid.
 
-Onder **Filters** slaat *Skip Invisible Rigs* (standaard aan) spelers over waarvan het karakter volledig doorzichtig is: lobby-, toeschouwer- of verborgen rigs waar je niets aan kunt raken. Zonder dit teleporteerde Rage soms naar zo'n rig. Aimbot, Trigger en ESP blijven zulke spelers wel gewoon zien, want een speler die tijdelijk onzichtbaar is door een vaardigheid wil je meestal juist wel kunnen zien.
+Onder **Filters** slaat *Skip Invisible Rigs* (standaard aan) spelers over waarvan het karakter volledig doorzichtig is: lobby-, toeschouwer- of verborgen rigs waar je niets aan kunt raken. Zonder dit teleporteerde Rage soms naar zo'n rig. Aimbot heeft dezelfde optie; Trigger en ESP blijven zulke spelers wel gewoon zien, want een speler die tijdelijk onzichtbaar is door een vaardigheid wil je meestal juist wel kunnen zien.
 
 Rage **pauzeert zolang het menu open is**, zodat je hem altijd kunt uitzetten, en met **End** schakel je hem aan of uit met het toetsenbord.
 

@@ -93,8 +93,8 @@ connect(RunService.Stepped, function()
     if not (flingBusy and U.Running) then return end
     local _, _, char = myHumanoid()
     if not char then return end
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.CanCollide then
+    for _, part in ipairs(U.CharParts(char)) do
+        if part.CanCollide then
             if savedCollide[part] == nil then savedCollide[part] = true end
             part.CanCollide = false
         end

@@ -21,6 +21,8 @@ slider(aimTune, "FOV Radius", "AimFov", 20, 800, 160, { Suffix = " px" })
 toggle(aimTune, "Team Check", "AimTeam", true)
 toggle(aimTune, "Dead Check", "AimDead", true)
 toggle(aimTune, "Wall Check", "AimWall", true)
+toggle(aimTune, "Skip ForceField", "AimNoFF", true)
+toggle(aimTune, "Skip Invisible Rigs", "AimNoInvis", true)
 toggle(aimTune, "Show FOV Circle", "AimShowFov", true)
 color(aimTune, "FOV Color", "AimFovColor", Color3.fromRGB(255, 255, 255))
 
@@ -52,12 +54,12 @@ renderLast(function(dt)
     if C.AimType == "Snap On Fire" then
         active = active and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
     end
-    -- never fight the user while they are working in the menu
-    if not active or cursorOverMenu() then aimTarget = nil releaseFace() return end
+    -- never fight the user while they are working in the menu, nor Rage while it has a target (both would turn the camera)
+    if not active or cursorOverMenu() or (U.RageTarget and U.RageTarget()) then aimTarget = nil releaseFace() return end
 
     local t = selectTarget({
         Origin = center, FOV = C.AimFov, MaxDist = C.AimDist, Team = C.AimTeam, Wall = C.AimWall,
-        AllowDead = not C.AimDead,
+        AllowDead = not C.AimDead, NoFF = C.AimNoFF, NoInvis = C.AimNoInvis,
         Part = C.AimPart, Priority = C.AimPriority, Sticky = C.AimSticky and aimTarget and aimTarget.plr or nil,
     })
     aimTarget = t

@@ -61,6 +61,12 @@ connect(RunService.RenderStepped, function()
         U.TrigTarget, U.TrigWhy = nil, "hold the trigger key"
         return
     end
+    -- Rage already clicks for its own target: two bots clicking means double shots
+    if U.RageTarget and U.RageTarget() then
+        trigSince = nil
+        U.TrigTarget, U.TrigWhy = nil, "paused: Rage has a target"
+        return
+    end
     local target, why = underCrosshair()
     U.TrigTarget, U.TrigWhy = target, why
     if not target then trigSince = nil return end

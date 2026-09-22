@@ -205,8 +205,8 @@ connect(RunService.Heartbeat, function(dt)
 
     if C.SuperNoclip then
         superSaved = superSaved or setmetatable({}, { __mode = "k" })
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
+        for _, part in ipairs(U.CharParts(char)) do
+            if part.CanCollide then
                 if superSaved[part] == nil then superSaved[part] = true end
                 part.CanCollide = false
             end

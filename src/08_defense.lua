@@ -79,44 +79,7 @@ end)
 toggle(arSec, "Anti Ragdoll", "AntiRagdoll", false)
 toggle(arSec, "Cancel Hit Stun", "AntiRagdollStun", false)
 
-local ragSpeed, ragJump, ragScan = 16, 50, 0
-renderLast(function()
-    if not (C.AntiRagdoll and U.Running) then return end
-    local hum, root, char = myHumanoid()
-    if not (hum and root) then return end
-
-    local ragged = char:FindFirstChild("Ragdoll") or char:FindFirstChild("RagdollSim")
-    local stunned = C.AntiRagdollStun and char:FindFirstChild("Freeze")
-    if not (ragged or stunned) then
-        -- remember our normal values so they can be put back afterwards
-        if hum.WalkSpeed > 0 then ragSpeed = hum.WalkSpeed end
-        if hum.JumpPower > 0 then ragJump = hum.JumpPower end
-        return
-    end
-
-    if ragged and not C.FlyEnabled then
-        if hum.PlatformStand then hum.PlatformStand = false end
-        local state = hum:GetState()
-        if state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.PlatformStanding
-            or state == Enum.HumanoidStateType.Ragdoll then
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-        if root.Anchored then root.Anchored = false end
-        if os.clock() - ragScan > 0.25 then
-            ragScan = os.clock()
-            for _, d in ipairs(char:GetDescendants()) do
-                if d:IsA("Motor6D") and not d.Enabled then d.Enabled = true end
-            end
-        end
-    end
-    if ragged or stunned then
-        if hum.WalkSpeed < 1 then hum.WalkSpeed = ragSpeed end
-        if hum.JumpPower < 1 then
-            hum.UseJumpPower = true
-            hum.JumpPower = ragJump
-        end
-    end
-end)
+-- the routine is shared with Movement > Anti Stun: see "anti stun + anti ragdoll" at the bottom of the Movement tab
 
 -- anti void -------------------------------------------------------------
 -- remembers the last solid ground you stood on; if you drop under the rescue line

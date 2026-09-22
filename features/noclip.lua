@@ -20,7 +20,7 @@ local fly = moveTab:Section("Flight & Collision")
 
 -- noclip -----------------------------------------------------------------
 
-local noclipOriginal = {}
+local noclipOriginal = setmetatable({}, { __mode = "k" })   -- weak: parts of old characters are forgotten
 toggle(fly, "Noclip", "Noclip", false, function(v)
     if not v then
         for part, was in pairs(noclipOriginal) do
@@ -34,8 +34,8 @@ local function applyNoclip()
     if not (C.Noclip and U.Running) then return end
     local _, _, char = myHumanoid()
     if not char then return end
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.CanCollide then
+    for _, part in ipairs(U.CharParts(char)) do
+        if part.CanCollide then
             if noclipOriginal[part] == nil then noclipOriginal[part] = true end
             part.CanCollide = false
         end

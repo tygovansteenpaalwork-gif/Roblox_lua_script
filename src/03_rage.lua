@@ -13,6 +13,16 @@ local rageFilt = rageTab:Section("Filters", "right")
 local rageAbil = rageTab:Section("Abilities")
 local rageMove = rageTab:Section("Positioning & Spin")
 
+-- small state of this tab in one table: the main chunk has (almost) no free local slots
+local R = {
+    AUTO = "Auto", NONE = "No Tool (fists)",
+    skip = {},          -- [plr] = until when Rage passes over that player (gave up: no damage)
+    warned = {},        -- extra keys we already warned about
+    seen = {},          -- every tool name ever listed (only a NEW tool starts ticked as an ability)
+    holdUntil = 0,      -- the ability tool stays in hand until then, afterwards the weapon comes back
+    equipAt = 0, progressAt = 0, whyAt = 0,
+}
+
 toggle(rage, "Enabled", "RageEnabled", false)
 -- while the menu is open Rage does nothing (no clicks, camera, teleport, keys), so the menu is always usable
 -- and you can always switch Rage off; it carries on the moment the menu closes
@@ -48,6 +58,8 @@ slider(rage, "Prediction", "RagePredict", 0, 0.3, 0.05, { Decimals = 2, Suffix =
 toggle(rage, "Add Ping To Prediction", "RagePing", false)
 toggle(rage, "Sticky Target", "RageSticky", true)
 slider(rage, "Keep Target At Least", "RageSwitch", 0, 3, 0.4, { Decimals = 1, Suffix = "s" })
+-- a target that takes no damage for this long is passed over for 5 s (unreachable, god mode, stuck in a wall ...)
+slider(rage, "Give Up If No Damage (0 = off)", "RageGiveUp", 0, 15, 4, { Decimals = 1, Suffix = "s" })
 
 toggle(rageFire, "Auto Shoot", "RageShoot", true)
 slider(rageFire, "Shoot Delay", "RageDelay", 0, 1000, 80, { Suffix = " ms" })
@@ -57,6 +69,14 @@ slider(rageFire, "Burst Gap", "RageBurstGap", 10, 300, 40, { Suffix = " ms" })
 slider(rageFire, "Only Fire Within", "RageAngle", 1, 180, 180, { Suffix = "°" })
 dropdown(rageFire, "Fire Method", "RageMethod", FIRE_METHODS, "Auto")
 toggle(rageFire, "Auto Equip Tool", "RageEquip", true)
+-- what Rage holds while shooting: Auto = the first tool that is not an ability, No Tool = empty hands
+-- (punch / M1 games), or one tool from your inventory. The list fills itself with your tools.
+C.RageWeapon = R.AUTO
+R.weaponDD = rageFire:Dropdown({ Text = "Weapon", Options = { R.AUTO, R.NONE }, Default = R.AUTO, Flag = "RageWeapon",
+    Callback = function(v)
+        C.RageWeapon = v or R.AUTO
+        if R.refresh then task.defer(R.refresh) end   -- the weapon leaves the ability list at once
+    end })
 slider(rageFire, "Warm-up", "RageWarmup", 0, 3, 1, { Decimals = 1, Suffix = "s" })
 
 toggle(rageFilt, "Team Check", "RageTeam", true)
@@ -108,15 +128,22 @@ end
 
 local function refreshAbilities()
     local names = currentToolNames()
-    local sig = table.concat(names, "|")
+    local sig = table.concat(names, "|") .. "#" .. tostring(C.RageWeapon)
     if sig == abilityLast then return end
     abilityLast = sig
-    local known = {}
-    for _, n in ipairs(abilityNames) do known[n] = true end
+    -- weapon list: the fixed choices, every tool, and the chosen weapon even while it is not in the inventory
+    -- (dead, not given yet) - otherwise the dropdown would forget it
+    local weapons = { R.AUTO, R.NONE }
+    for _, n in ipairs(names) do table.insert(weapons, n) end
+    if not table.find(weapons, C.RageWeapon) then table.insert(weapons, C.RageWeapon) end
+    R.weaponDD:SetOptions(weapons)
     for _, n in ipairs(names) do
         if not slotOf[n] then slotOf[n], nextSlot = nextSlot, nextSlot + 1 end
-        if not known[n] then chosenTools[n] = true end   -- a new tool starts ticked
+        if not R.seen[n] then R.seen[n], chosenTools[n] = true, true end   -- a new tool starts ticked
     end
+    -- the weapon is never also used as an ability
+    local i = table.find(names, C.RageWeapon)
+    if i then table.remove(names, i) end
     abilityNames = names
     abilityDD:SetOptions(names)
     local picked = {}
@@ -130,16 +157,35 @@ abilityDD = rageAbil:Dropdown({ Text = "Abilities To Use", Options = {}, Multi =
         for _, n in ipairs(picked) do set[n] = true end
         for _, n in ipairs(abilityNames) do chosenTools[n] = set[n] or nil end
     end })
+-- Rage presses keys through VirtualInputManager, which this menu sees as real key presses: a key that is
+-- also a menu keybind (F = Fly, G = Telekinesis fire, V = Rage key ...) would switch that feature on and
+-- off every few hundred ms. Such keys are skipped, with one warning per key.
+function R.menuKey(code)
+    if win.ToggleKey == code then return true end
+    for _, b in pairs(BIND) do
+        if b:Get() == code then return true end
+    end
+    return false
+end
+function R.warnKey(k)
+    if R.warned[k] then return end
+    R.warned[k] = true
+    notify("Rage", "Extra key " .. k .. " is skipped: a menu keybind already uses it", "warn")
+end
+
 rageAbil:Dropdown({ Text = "Extra Keys", Options = EXTRA_KEYS, Multi = true, Flag = "RageExtraKeys",
     Callback = function(picked)
-        chosenKeys = {}
+        chosenKeys, R.warned = {}, {}
         for _, k in ipairs(picked) do chosenKeys[k] = true end
     end })
-dropdown(rageAbil, "Ability Method", "RageAbilityMethod", { "Hotbar Key", "Equip + Activate" }, "Hotbar Key")
+-- Equip + Activate puts the tool in your hand directly; Hotbar Key presses its number key instead
+-- (the slot number is a guess: the order in which the tools were first seen)
+dropdown(rageAbil, "Ability Method", "RageAbilityMethod", { "Equip + Activate", "Hotbar Key" }, "Equip + Activate")
 slider(rageAbil, "Ability Range", "RageAbilityRange", 3, 150, 14, { Suffix = " st" })
 slider(rageAbil, "Delay Between Abilities", "RageAbilityDelay", 50, 2000, 350, { Suffix = " ms" })
 slider(rageAbil, "Cooldown Per Ability", "RageAbilityCd", 0, 20, 2, { Decimals = 1, Suffix = "s" })
 
+R.refresh = refreshAbilities
 refreshAbilities()
 task.spawn(function()
     while U.Running do
@@ -165,7 +211,9 @@ local function useAbility(now, t, off)
         if chosenTools[n] and (abilityReady["t:" .. n] or 0) <= now then table.insert(ready, { tool = n }) end
     end
     for _, k in ipairs(EXTRA_KEYS) do
-        if chosenKeys[k] and (abilityReady["k:" .. k] or 0) <= now then table.insert(ready, { key = k }) end
+        if chosenKeys[k] and (abilityReady["k:" .. k] or 0) <= now then
+            if R.menuKey(Enum.KeyCode[k]) then R.warnKey(k) else table.insert(ready, { key = k }) end
+        end
     end
     if #ready == 0 then return end
 
@@ -175,21 +223,103 @@ local function useAbility(now, t, off)
         pressKey(Enum.KeyCode[pick.key])
         abilityReady["k:" .. pick.key] = now + C.RageAbilityCd
     else
-        if C.RageAbilityMethod == "Equip + Activate" then
-            local tool = (lp.Character and lp.Character:FindFirstChild(pick.tool)) or lp.Backpack:FindFirstChild(pick.tool)
-            local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
-            if tool and hum then
-                if tool.Parent ~= lp.Character then hum:EquipTool(tool) end
+        local char = lp.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local held = char and char:FindFirstChild(pick.tool)
+        local slot = SLOT_KEYS[slotOf[pick.tool] or 99]
+        if held and held:IsA("Tool") then
+            held:Activate()   -- already in hand: its hotbar key would put it AWAY again
+        elseif C.RageAbilityMethod == "Hotbar Key" and slot and not R.menuKey(slot) then
+            pressKey(slot)
+        else
+            local tool = lp.Backpack:FindFirstChild(pick.tool)
+            if tool and tool:IsA("Tool") and hum then
+                hum:EquipTool(tool)
                 tool:Activate()
             end
-        elseif SLOT_KEYS[slotOf[pick.tool] or 99] then
-            pressKey(SLOT_KEYS[slotOf[pick.tool]])
         end
         abilityReady["t:" .. pick.tool] = now + C.RageAbilityCd
+        -- keep the ability tool in hand for a moment, then the weapon comes back (R.equipWeapon)
+        R.holdUntil = now + math.min(C.RageAbilityDelay / 1000, 0.5)
     end
     nextAbility = now + C.RageAbilityDelay / 1000
 end
 U.RageAbilityState = function() return abilityNames, chosenTools, chosenKeys end   -- self-tests
+
+-- puts the chosen weapon in hand (not while an ability tool is still being used); a few times a second at most
+function R.equipWeapon(now)
+    if not C.RageEquip or now < R.holdUntil or now < R.equipAt then return end
+    R.equipAt = now + 0.15
+    local char = lp.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    local held = char:FindFirstChildOfClass("Tool")
+    local w = C.RageWeapon
+    local function isAbility(name) return C.RageAbilitiesOn and chosenTools[name] and name ~= w end
+    if w == R.NONE then
+        if held then hum:UnequipTools() end
+    elseif w == R.AUTO then
+        if held and not isAbility(held.Name) then return end
+        for _, x in ipairs(lp.Backpack:GetChildren()) do
+            if x:IsA("Tool") and not isAbility(x.Name) then hum:EquipTool(x) return end
+        end
+        if held then hum:UnequipTools() end   -- only abilities in the inventory: fight with empty hands
+    elseif not (held and held.Name == w) then
+        local x = lp.Backpack:FindFirstChild(w)
+        if x and x:IsA("Tool") then hum:EquipTool(x) end
+    end
+end
+
+-- a spot Rage may put the character on: a real number, and not in (or under) the void
+function R.safeSpot(p)
+    if p.X ~= p.X or p.Y ~= p.Y or p.Z ~= p.Z or p.Magnitude > 1e5 then return false end
+    local floor = workspace.FallenPartsDestroyHeight
+    if floor ~= floor then floor = -1000 end   -- NaN in some games
+    return p.Y > math.max(floor, -1000) + 20
+end
+
+-- after teleporting every frame the physics has built up speed: drop it, or the character shoots away
+function R.stopPos()
+    R.positioned = false
+    local _, _, root = charOf(lp)
+    if root then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
+-- why there is no target: the reason of the nearest player that was passed over (for the status text)
+function R.noTargetWhy()
+    local camPos = cam().CFrame.Position
+    local anyBlack = next(U.Black) ~= nil
+    local why, bestDist = nil, math.huge
+    for _, e in ipairs(U.Others()) do
+        local plr, char, hum, root = e.plr, e.char, e.hum, e.root
+        if C.RageWho == RAGE_AUTO or plr.Name == C.RageWho then
+            local r
+            local dist = root and (root.Position - camPos).Magnitude or 1e9
+            if C.ListRespectWhite and U.White[plr.Name] then r = "whitelisted"
+            elseif C.ListOnlyBlack and anyBlack and not U.Black[plr.Name] then r = "not on blacklist"
+            elseif R.skip[plr] then r = "gave up, no damage"
+            elseif not (char and hum and root) then r = "no character"
+            elseif C.RageDead and hum.Health <= 0 then r = "dead"
+            elseif C.RageTeam and sameTeam(plr) then r = "teammate"
+            elseif C.RageNoFF and char:FindFirstChildOfClass("ForceField") then r = "forcefield"
+            elseif C.RageNoInvis and U.isInvisible(char) then r = "invisible"
+            elseif dist > C.RageDist then r = "too far"
+            elseif dist < C.RageMinDist then r = "too close"
+            else
+                local part = char:FindFirstChild("Head") or root
+                local sp, on = screenPoint(part.Position)
+                if C.RageFov > 0 and not (on and (sp - cursorOrCenter(false)).Magnitude <= C.RageFov) then r = "outside FOV"
+                elseif not C.RageIgnoreWalls then r = "behind wall" end
+            end
+            if r and dist < bestDist then why, bestDist = r, dist end
+        end
+    end
+    if C.RageWho ~= RAGE_AUTO and not Players:FindFirstChild(C.RageWho) then return "not in server" end
+    return why or (#U.Others() == 0 and "no other players" or nil)
+end
 
 local rageState, rageOnAt = "off", 0   -- "off" | "loading" | "active"; driven by the status pill below
 local rageLockedAt, rageKills = 0, 0
@@ -198,6 +328,7 @@ local rageSpun = false                  -- true while WE have AutoRotate switche
 
 local function rageReset()
     rageTarget, burstLeft = nil, 0
+    if R.positioned then R.stopPos() end
     if rageSpun then
         rageSpun = false
         local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
@@ -253,8 +384,11 @@ renderLast(function(dt)
     -- keep the current target for a minimum time (or forever when Sticky) so it does not flicker
     local prev = rageTarget
     local keep = prev and (C.RageSticky or now - rageLockedAt < C.RageSwitch)
+    for plr, untilT in pairs(R.skip) do
+        if untilT <= now then R.skip[plr] = nil end
+    end
     local t = selectTarget({
-        Only = C.RageWho ~= RAGE_AUTO and C.RageWho or nil,
+        Only = C.RageWho ~= RAGE_AUTO and C.RageWho or nil, Skip = R.skip,
         FOV = C.RageFov > 0 and C.RageFov or nil, MaxDist = C.RageDist, MinDist = C.RageMinDist,
         Team = C.RageTeam, NoFF = C.RageNoFF, NoInvis = C.RageNoInvis, Wall = not C.RageIgnoreWalls, AllowDead = not C.RageDead,
         Part = C.RagePart, Priority = C.RagePriority, Origin = cursorOrCenter(false),
@@ -266,8 +400,27 @@ renderLast(function(dt)
         burstLeft = 0
     end
     if t and (not prev or t.plr ~= prev.plr) then rageLockedAt = now end
+
+    -- give up on a target that takes no damage for a while (unreachable, god mode, stuck in a wall ...):
+    -- pass over it for 5 s. Not for one chosen player (there is nobody else), and only while Rage attacks.
+    if t and C.RageGiveUp > 0 and C.RageWho == RAGE_AUTO and (C.RageShoot or C.RageAbilitiesOn) then
+        local hp = t.hum.Health
+        if t.plr ~= R.hpPlr then R.hpPlr, R.progressAt = t.plr, now
+        elseif hp < R.hp then R.progressAt = now end
+        R.hp = hp
+        if now - R.progressAt > C.RageGiveUp then
+            R.skip[t.plr], R.hpPlr, burstLeft = now + 5, nil, 0
+            t = nil
+        end
+    end
+
     rageTarget = t
-    if not t then return end
+    if not t then
+        if R.positioned then R.stopPos() end
+        if now - R.whyAt > 0.25 then R.whyAt, R.why = now, R.noTargetWhy() end
+        return
+    end
+    R.why = nil
 
     if C.RagePosition ~= "Off" then
         local base = t.root.CFrame
@@ -275,14 +428,24 @@ renderLast(function(dt)
         if C.RagePosSmooth > 0 then
             spot = root.Position:Lerp(spot, 1 - (C.RagePosSmooth / 100) ^ (math.min(dt, 0.1) * 60))
         end
-        -- stay upright: face the target on our own height. Straight above/below it there is no
-        -- horizontal direction (lookAt would produce a NaN CFrame), so keep the current yaw then.
-        local flat = Vector3.new(base.Position.X - spot.X, 0, base.Position.Z - spot.Z)
-        if flat.Magnitude > 0.05 then
-            root.CFrame = CFrame.lookAt(spot, spot + flat)
-        else
-            root.CFrame = CFrame.new(spot) * root.CFrame.Rotation
+        -- never follow a target into the void or to a broken (NaN / far away) position
+        if R.safeSpot(spot) then
+            -- stay upright: face the target on our own height. Straight above/below it there is no
+            -- horizontal direction (lookAt would produce a NaN CFrame), so keep the current yaw then.
+            local flat = Vector3.new(base.Position.X - spot.X, 0, base.Position.Z - spot.Z)
+            if flat.Magnitude > 0.05 then
+                root.CFrame = CFrame.lookAt(spot, spot + flat)
+            else
+                root.CFrame = CFrame.new(spot) * root.CFrame.Rotation
+            end
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            R.positioned = true
+        elseif R.positioned then
+            R.stopPos()
         end
+    elseif R.positioned then
+        R.stopPos()
     end
 
     local c = cam()
@@ -296,6 +459,7 @@ renderLast(function(dt)
 
     local off = math.deg(math.acos(math.clamp(c.CFrame.LookVector:Dot((aimAt - c.CFrame.Position).Unit), -1, 1)))
     useAbility(now, t, off)
+    R.equipWeapon(now)
     if not C.RageShoot then return end
     if off > C.RageAngle then return end
 
@@ -306,7 +470,6 @@ renderLast(function(dt)
     end
     if burstLeft == 0 and now >= nextBurst then burstLeft = C.RageBurst end
     if burstLeft > 0 and now >= nextShot then
-        if C.RageEquip then ensureToolEquipped() end
         fireWeapon(C.RageMethod)
         burstLeft -= 1
         nextShot = now + C.RageBurstGap / 1000
@@ -371,10 +534,13 @@ renderLast(function(dt)
             text = "RAGE READY" .. kills
         elseif rageTarget then
             text = "RAGE ACTIVE  ·  " .. rageTarget.plr.DisplayName .. kills
-        elseif C.RageWho ~= RAGE_AUTO then
-            text = "RAGE ACTIVE  ·  waiting for " .. C.RageWho .. kills
         else
-            text = "RAGE ACTIVE" .. kills
+            local why = R.why and (" (" .. R.why .. ")") or ""
+            if C.RageWho ~= RAGE_AUTO then
+                text = "RAGE ACTIVE  ·  waiting for " .. C.RageWho .. why .. kills
+            else
+                text = "RAGE ACTIVE  ·  no target" .. why .. kills
+            end
         end
     end
 
