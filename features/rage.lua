@@ -150,9 +150,21 @@ end
 
 -- An ability is a tool WITHOUT a model: The Strongest Battlegrounds' moves are empty tools. A tool with parts is a
 -- weapon or an item (guns, knives, a wallet ...): pressing its hotbar key would just swap what you hold.
+-- The tool is looked up live (not from the last scan). Right after a respawn a gun can exist for a moment before its
+-- parts have streamed in: seen then, it looked like an empty tool, was taken for an ability, and Rage kept switching
+-- to it. So an empty tool only counts as an ability once it has stayed empty for 2 seconds (or says it needs no
+-- handle); until then it is treated as a weapon, which is the safe side.
+R.firstSeen = setmetatable({}, { __mode = "k" })
 function R.isAbilityTool(name)
-    local t = R.toolOf and R.toolOf[name]
-    return t ~= nil and t:FindFirstChildWhichIsA("BasePart", true) == nil
+    local char = lp.Character
+    local t = (char and char:FindFirstChild(name)) or lp.Backpack:FindFirstChild(name)
+    if not (t and t:IsA("Tool")) then t = R.toolOf and R.toolOf[name] end
+    if not (t and t:IsA("Tool")) then return false end
+    if t:FindFirstChildWhichIsA("BasePart", true) then return false end
+    if not t.RequiresHandle then return true end
+    local seen = R.firstSeen[t]
+    if not seen then seen = os.clock() R.firstSeen[t] = seen end
+    return os.clock() - seen > 2
 end
 
 -- a gun: a tool with an "Ammo" value (Da Hood style); returns the ammo left
@@ -164,7 +176,9 @@ end
 
 local function refreshAbilities()
     local names = currentToolNames()
-    local sig = table.concat(names, "|") .. "#" .. tostring(C.RageWeapon)
+    local flags = {}
+    for _, n in ipairs(names) do table.insert(flags, R.isAbilityTool(n) and "a" or "w") end
+    local sig = table.concat(names, "|") .. "#" .. table.concat(flags) .. "#" .. tostring(C.RageWeapon)
     if sig == abilityLast then return end
     abilityLast = sig
     -- weapon list: the fixed choices, every tool, and the chosen weapon even while it is not in the inventory
@@ -258,6 +272,12 @@ local function useAbility(now, t, off)
 
     abilityIdx += 1
     local pick = ready[(abilityIdx - 1) % #ready + 1]
+    -- last check on the real tool: a weapon or item is never used as an ability (and never swapped to)
+    if pick.tool and (pick.tool == C.RageWeapon or not R.isAbilityTool(pick.tool)) then
+        abilityReady["t:" .. pick.tool] = now + 5
+        abilityLast = ""   -- rebuild the ability list on the next scan
+        return
+    end
     if pick.key then
         pressKey(Enum.KeyCode[pick.key])
         abilityReady["k:" .. pick.key] = now + C.RageAbilityCd

@@ -53,6 +53,10 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.5.2
+
+- **Rage pakt je gekozen wapen.** Na een respawn kon een geweer heel even zonder onderdelen bestaan; Rage zag het dan aan voor een ability en wisselde er later naartoe. Een lege tool telt nu pas als ability als hij 2 seconden leeg blijft, en vlak voor gebruik wordt de echte tool nog eens gecontroleerd.
+
 ## Nieuw in 2.5.1
 
 - **Rage in Da Hood-achtige games.** Alleen tools zonder model (zoals de moves in The Strongest Battlegrounds) tellen als ability, dus Rage wisselt niet meer tussen je geweren, mes en wallet. *Weapon: Auto* kiest een geweer met kogels. Nieuw: **Auto Reload** (leeg geweer, dan drukt Rage op R) en **Respect Weapon Range** (een shotgun kiest alleen targets binnen zijn bereik).
