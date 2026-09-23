@@ -78,8 +78,8 @@ connect(RunService.Heartbeat, function()
     if not head then return end   -- target dead / respawning: we keep waiting
 
     sitSaved = sitSaved or setmetatable({}, { __mode = "k" })
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.CanCollide then
+    for _, part in ipairs(U.CharParts(char)) do
+        if part.CanCollide then
             if sitSaved[part] == nil then sitSaved[part] = true end
             part.CanCollide = false
         end

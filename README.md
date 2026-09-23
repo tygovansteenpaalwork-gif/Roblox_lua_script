@@ -53,6 +53,13 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.6.2
+
+- **Custom Cursor kost geen FPS meer.** *Hide System Cursor* verbergt de muispijl nu met een doorzichtig plaatje in plaats van hem elk frame uit te zetten. Games zoals The Strongest Battlegrounds zetten de pijl elk frame weer aan, en dat gevecht kostte ongeveer 3 ms per frame. Nu is dat vrijwel 0.
+- **Desync en HeadSit** lopen niet meer elk frame door je hele character (gemeten: 0,6 ms per frame minder).
+- **ESP uit kost niets meer**: de spelerslijst wordt dan helemaal overgeslagen.
+- De FOV-cirkel en de silent-lijn schrijven alleen nog naar de UI als er echt iets verandert.
+
 ## Nieuw in 2.6.0
 
 - **Potato Mode** (*Misc → Performance*): alles voor FPS zonder dat je minder ver ziet. Onderdelen worden glad plastic zonder eigen schaduw, textures en PBR-skins verdwijnen, particles en post-effecten gaan uit, de eenvoudigste lichtmotor en rustig water. Spelers en je viewmodel blijven zoals ze zijn (Weapon Skin blijft werken). Grote maps worden in stukjes verwerkt, uitzetten zet alles terug. In The Strongest Battlegrounds gemeten: 87 naar 103 FPS.

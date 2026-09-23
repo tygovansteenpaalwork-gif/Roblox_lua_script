@@ -61,7 +61,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.6.1"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.6.2"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -319,12 +319,13 @@ local function makeCircle()
     local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(1, 0); corner.Parent = f
     local stroke = Instance.new("UIStroke"); stroke.Thickness = 1.5; stroke.Parent = f
     f.Parent = overlay
+    local put = U.put
     return function(radius, pos, col, visible)
-        f.Visible = visible
+        put(f, "Visible", visible)
         if visible then
-            f.Size = UDim2.fromOffset(radius * 2, radius * 2)
-            f.Position = UDim2.fromOffset(pos.X, pos.Y)
-            stroke.Color = col
+            put(f, "Size", UDim2.fromOffset(radius * 2, radius * 2))
+            put(f, "Position", UDim2.fromOffset(pos.X, pos.Y))
+            put(stroke, "Color", col)
         end
     end
 end
@@ -335,14 +336,15 @@ local function makeLine()
     f.BorderSizePixel = 0
     f.Visible = false
     f.Parent = overlay
+    local put = U.put
     return function(a, b, col, visible, thickness)
-        f.Visible = visible
+        put(f, "Visible", visible)
         if visible then
             local d = b - a
-            f.BackgroundColor3 = col
-            f.Size = UDim2.fromOffset(d.Magnitude, thickness or 1.5)
-            f.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
-            f.Rotation = math.deg(math.atan2(d.Y, d.X))
+            put(f, "BackgroundColor3", col)
+            put(f, "Size", UDim2.fromOffset(d.Magnitude, thickness or 1.5))
+            put(f, "Position", UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2))
+            put(f, "Rotation", math.deg(math.atan2(d.Y, d.X)))
         end
     end
 end
@@ -355,9 +357,10 @@ local function makeDot()
     f.Visible = false
     local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(1, 0); corner.Parent = f
     f.Parent = overlay
+    local put = U.put
     return function(pos, col, visible)
-        f.Visible = visible
-        if visible then f.Position = UDim2.fromOffset(pos.X, pos.Y) f.BackgroundColor3 = col end
+        put(f, "Visible", visible)
+        if visible then put(f, "Position", UDim2.fromOffset(pos.X, pos.Y)) put(f, "BackgroundColor3", col) end
     end
 end
 

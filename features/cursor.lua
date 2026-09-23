@@ -13,9 +13,9 @@ local Core = getgenv().TerkanCore or loadstring(game:HttpGet(BASE .. "features/_
 local ctx = Core({ Name = "cursor", Title = "Cursor" })
 
 local C, Players, Ready, U, UserInputService, cam = ctx.C, ctx.Players, ctx.Ready, ctx.U, ctx.UserInputService, ctx.cam
-local charOf, color, cursorOverMenu, dropdown, lp, onUnload = ctx.charOf, ctx.color, ctx.cursorOverMenu, ctx.dropdown, ctx.lp, ctx.onUnload
-local overlay, rayParams, renderLast, slider, toggle, viewportCenter = ctx.overlay, ctx.rayParams, ctx.renderLast, ctx.slider, ctx.toggle, ctx.viewportCenter
-local win = ctx.win
+local charOf, color, cursorOverMenu, dropdown, hasFn, lp = ctx.charOf, ctx.color, ctx.cursorOverMenu, ctx.dropdown, ctx.hasFn, ctx.lp
+local onUnload, overlay, rayParams, renderLast, slider, toggle = ctx.onUnload, ctx.overlay, ctx.rayParams, ctx.renderLast, ctx.slider, ctx.toggle
+local viewportCenter, win = ctx.viewportCenter, ctx.win
 
 local rageTarget, aimTarget
 
@@ -147,16 +147,44 @@ local GLOW_ALPHA = { 0.62, 0.84 }   -- transparency of the inner / outer layer
 
 onUnload(function() curRoot:Destroy() end)
 
--- the normal pointer is hidden while the custom one is drawn, and handed back afterwards
-local sysIconOriginal
+-- The normal pointer is hidden while the custom one is drawn, and handed back afterwards.
+-- It is hidden by giving it a fully transparent 1x1 image, NOT with MouseIconEnabled: games like The Strongest
+-- Battlegrounds switch MouseIconEnabled back on every frame, and switching it off again every frame cost ~3 ms per
+-- frame (measured). No game touched MouseIcon, so the blank image stays put and costs nothing.
+-- Without getcustomasset the old MouseIconEnabled way is used.
+local BLANK_PNG = "\137\80\78\71\13\10\26\10\0\0\0\13\73\72\68\82\0\0\0\1\0\0\0\1\8\6\0\0\0\31\21\196\137\0\0\0\11"
+    .. "\73\68\65\84\120\156\99\96\0\2\0\0\5\0\1\122\94\171\63\0\0\0\0\73\69\78\68\174\66\96\130"
+local sysCursor = {}   -- enabled / icon: the game's own values before we changed them; blank: our image
+local function blankIcon()
+    if sysCursor.blank == nil then
+        sysCursor.blank = false
+        pcall(function()
+            if not isfolder("Terkan") then makefolder("Terkan") end
+            writefile("Terkan/cursor_blank.png", BLANK_PNG)
+            sysCursor.blank = getcustomasset("Terkan/cursor_blank.png")
+        end)
+    end
+    return sysCursor.blank
+end
 local function setSystemCursor(visibleIcon)
-    if sysIconOriginal == nil then sysIconOriginal = UserInputService.MouseIconEnabled end
-    UserInputService.MouseIconEnabled = visibleIcon
+    local blank = hasFn("getcustomasset") and blankIcon()
+    if blank then
+        if sysCursor.icon == nil then sysCursor.icon = UserInputService.MouseIcon end
+        local want = visibleIcon and sysCursor.icon or blank
+        if UserInputService.MouseIcon ~= want then UserInputService.MouseIcon = want end
+    else
+        if sysCursor.enabled == nil then sysCursor.enabled = UserInputService.MouseIconEnabled end
+        UserInputService.MouseIconEnabled = visibleIcon
+    end
 end
 local function restoreSystemCursor()
-    if sysIconOriginal ~= nil then
-        UserInputService.MouseIconEnabled = sysIconOriginal
-        sysIconOriginal = nil
+    if sysCursor.icon ~= nil then
+        UserInputService.MouseIcon = sysCursor.icon
+        sysCursor.icon = nil
+    end
+    if sysCursor.enabled ~= nil then
+        UserInputService.MouseIconEnabled = sysCursor.enabled
+        sysCursor.enabled = nil
     end
 end
 onUnload(restoreSystemCursor)

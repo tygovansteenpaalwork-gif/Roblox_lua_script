@@ -311,6 +311,15 @@ end
 local function drawESP()
     if not U.Running then return end
     if U.applyFov then U.applyFov() end
+    -- ESP off: hide every set once, then skip the whole player loop until it is switched on again
+    if not C.ESPEnabled then
+        if not U.espAllHidden then
+            for _, o in pairs(ESP) do hideESP(o) end
+            U.espAllHidden = true
+        end
+        return
+    end
+    U.espAllHidden = false
     local c = cam()
     U.espCam = c
     local _, _, meRoot = charOf(lp, true)
@@ -515,14 +524,17 @@ function U.applyFov()
         U.origFov = nil
     end
 end
+local FULLBRIGHT_AMBIENT = Color3.fromRGB(178, 178, 178)
 renderLast(function()
     if C.Fullbright then
+        -- written every frame on purpose: the engine skips a write of an unchanged value itself, which measured
+        -- ~10x cheaper than reading the value first to compare (a read allocates a new Color3)
         Lighting.Brightness = C.FullbrightLevel
         Lighting.ClockTime = C.FullbrightTime
         Lighting.FogEnd = 1e6
         Lighting.GlobalShadows = false
-        Lighting.Ambient = Color3.fromRGB(178, 178, 178)
-        Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
+        Lighting.Ambient = FULLBRIGHT_AMBIENT
+        Lighting.OutdoorAmbient = FULLBRIGHT_AMBIENT
     end
     U.applyFov()
 end)

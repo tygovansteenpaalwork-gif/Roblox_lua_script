@@ -162,10 +162,9 @@ local function destroyGhost()
 end
 onUnload(destroyGhost)
 
+-- asked every frame while the ghost is shown: the cached part list, not a walk over every descendant
 local function countParts(char)
-    local n = 0
-    for _, d in ipairs(char:GetDescendants()) do if d:IsA("BasePart") then n += 1 end end
-    return n
+    return #U.CharParts(char)
 end
 
 local function buildGhost(char)

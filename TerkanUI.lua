@@ -724,6 +724,18 @@ function Window:SaveConfig(name, overwrite)
     return true, name
 end
 
+-- The order in which LoadConfig applies the saved flags. pairs() has no fixed order, so a toggle could switch a
+-- feature on (and run its callback) before the dropdowns / sliders that tell it HOW to run were loaded.
+--   registered: self.Flags, [flag] = { Kind = "toggle" | "slider" | "dropdown" | "color" | "keybind" | ..., ... }
+--   saved:      the flags in the config file, [flag] = raw value
+-- Returns a list of flag names (from `saved`) in the order they must be applied.
+local function loadOrder(registered, saved)
+    local order = {}
+    for flag in pairs(saved) do table.insert(order, flag) end
+    -- TODO: sort `order` so the result no longer depends on pairs()
+    return order
+end
+
 function Window:LoadConfig(name)
     if not fsAvailable() then return false, "This executor has no file access" end
     name = cleanName(name)
@@ -736,7 +748,8 @@ function Window:LoadConfig(name)
     if not ok or type(data) ~= "table" or type(data.flags) ~= "table" then return false, "Config is corrupted" end
 
     local applied = 0
-    for flag, raw in pairs(data.flags) do
+    for _, flag in ipairs(loadOrder(self.Flags, data.flags)) do
+        local raw = data.flags[flag]
         local entry = self.Flags[flag]
         if entry then
             local value = decodeValue(entry.Kind, raw)

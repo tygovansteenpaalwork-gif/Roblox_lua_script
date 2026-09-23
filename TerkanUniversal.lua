@@ -49,7 +49,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.6.1"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.6.2"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -307,12 +307,13 @@ local function makeCircle()
     local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(1, 0); corner.Parent = f
     local stroke = Instance.new("UIStroke"); stroke.Thickness = 1.5; stroke.Parent = f
     f.Parent = overlay
+    local put = U.put
     return function(radius, pos, col, visible)
-        f.Visible = visible
+        put(f, "Visible", visible)
         if visible then
-            f.Size = UDim2.fromOffset(radius * 2, radius * 2)
-            f.Position = UDim2.fromOffset(pos.X, pos.Y)
-            stroke.Color = col
+            put(f, "Size", UDim2.fromOffset(radius * 2, radius * 2))
+            put(f, "Position", UDim2.fromOffset(pos.X, pos.Y))
+            put(stroke, "Color", col)
         end
     end
 end
@@ -323,14 +324,15 @@ local function makeLine()
     f.BorderSizePixel = 0
     f.Visible = false
     f.Parent = overlay
+    local put = U.put
     return function(a, b, col, visible, thickness)
-        f.Visible = visible
+        put(f, "Visible", visible)
         if visible then
             local d = b - a
-            f.BackgroundColor3 = col
-            f.Size = UDim2.fromOffset(d.Magnitude, thickness or 1.5)
-            f.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
-            f.Rotation = math.deg(math.atan2(d.Y, d.X))
+            put(f, "BackgroundColor3", col)
+            put(f, "Size", UDim2.fromOffset(d.Magnitude, thickness or 1.5))
+            put(f, "Position", UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2))
+            put(f, "Rotation", math.deg(math.atan2(d.Y, d.X)))
         end
     end
 end
@@ -343,9 +345,10 @@ local function makeDot()
     f.Visible = false
     local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(1, 0); corner.Parent = f
     f.Parent = overlay
+    local put = U.put
     return function(pos, col, visible)
-        f.Visible = visible
-        if visible then f.Position = UDim2.fromOffset(pos.X, pos.Y) f.BackgroundColor3 = col end
+        put(f, "Visible", visible)
+        if visible then put(f, "Position", UDim2.fromOffset(pos.X, pos.Y)) put(f, "BackgroundColor3", col) end
     end
 end
 
@@ -1953,16 +1956,44 @@ local GLOW_ALPHA = { 0.62, 0.84 }   -- transparency of the inner / outer layer
 
 onUnload(function() curRoot:Destroy() end)
 
--- the normal pointer is hidden while the custom one is drawn, and handed back afterwards
-local sysIconOriginal
+-- The normal pointer is hidden while the custom one is drawn, and handed back afterwards.
+-- It is hidden by giving it a fully transparent 1x1 image, NOT with MouseIconEnabled: games like The Strongest
+-- Battlegrounds switch MouseIconEnabled back on every frame, and switching it off again every frame cost ~3 ms per
+-- frame (measured). No game touched MouseIcon, so the blank image stays put and costs nothing.
+-- Without getcustomasset the old MouseIconEnabled way is used.
+local BLANK_PNG = "\137\80\78\71\13\10\26\10\0\0\0\13\73\72\68\82\0\0\0\1\0\0\0\1\8\6\0\0\0\31\21\196\137\0\0\0\11"
+    .. "\73\68\65\84\120\156\99\96\0\2\0\0\5\0\1\122\94\171\63\0\0\0\0\73\69\78\68\174\66\96\130"
+local sysCursor = {}   -- enabled / icon: the game's own values before we changed them; blank: our image
+local function blankIcon()
+    if sysCursor.blank == nil then
+        sysCursor.blank = false
+        pcall(function()
+            if not isfolder("Terkan") then makefolder("Terkan") end
+            writefile("Terkan/cursor_blank.png", BLANK_PNG)
+            sysCursor.blank = getcustomasset("Terkan/cursor_blank.png")
+        end)
+    end
+    return sysCursor.blank
+end
 local function setSystemCursor(visibleIcon)
-    if sysIconOriginal == nil then sysIconOriginal = UserInputService.MouseIconEnabled end
-    UserInputService.MouseIconEnabled = visibleIcon
+    local blank = hasFn("getcustomasset") and blankIcon()
+    if blank then
+        if sysCursor.icon == nil then sysCursor.icon = UserInputService.MouseIcon end
+        local want = visibleIcon and sysCursor.icon or blank
+        if UserInputService.MouseIcon ~= want then UserInputService.MouseIcon = want end
+    else
+        if sysCursor.enabled == nil then sysCursor.enabled = UserInputService.MouseIconEnabled end
+        UserInputService.MouseIconEnabled = visibleIcon
+    end
 end
 local function restoreSystemCursor()
-    if sysIconOriginal ~= nil then
-        UserInputService.MouseIconEnabled = sysIconOriginal
-        sysIconOriginal = nil
+    if sysCursor.icon ~= nil then
+        UserInputService.MouseIcon = sysCursor.icon
+        sysCursor.icon = nil
+    end
+    if sysCursor.enabled ~= nil then
+        UserInputService.MouseIconEnabled = sysCursor.enabled
+        sysCursor.enabled = nil
     end
 end
 onUnload(restoreSystemCursor)
@@ -2455,6 +2486,15 @@ end
 local function drawESP()
     if not U.Running then return end
     if U.applyFov then U.applyFov() end
+    -- ESP off: hide every set once, then skip the whole player loop until it is switched on again
+    if not C.ESPEnabled then
+        if not U.espAllHidden then
+            for _, o in pairs(ESP) do hideESP(o) end
+            U.espAllHidden = true
+        end
+        return
+    end
+    U.espAllHidden = false
     local c = cam()
     U.espCam = c
     local _, _, meRoot = charOf(lp, true)
@@ -2659,14 +2699,17 @@ function U.applyFov()
         U.origFov = nil
     end
 end
+local FULLBRIGHT_AMBIENT = Color3.fromRGB(178, 178, 178)
 renderLast(function()
     if C.Fullbright then
+        -- written every frame on purpose: the engine skips a write of an unchanged value itself, which measured
+        -- ~10x cheaper than reading the value first to compare (a read allocates a new Color3)
         Lighting.Brightness = C.FullbrightLevel
         Lighting.ClockTime = C.FullbrightTime
         Lighting.FogEnd = 1e6
         Lighting.GlobalShadows = false
-        Lighting.Ambient = Color3.fromRGB(178, 178, 178)
-        Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
+        Lighting.Ambient = FULLBRIGHT_AMBIENT
+        Lighting.OutdoorAmbient = FULLBRIGHT_AMBIENT
     end
     U.applyFov()
 end)
@@ -3532,10 +3575,9 @@ local function destroyGhost()
 end
 onUnload(destroyGhost)
 
+-- asked every frame while the ghost is shown: the cached part list, not a walk over every descendant
 local function countParts(char)
-    local n = 0
-    for _, d in ipairs(char:GetDescendants()) do if d:IsA("BasePart") then n += 1 end end
-    return n
+    return #U.CharParts(char)
 end
 
 local function buildGhost(char)
@@ -4910,8 +4952,8 @@ connect(RunService.Heartbeat, function()
     if not head then return end   -- target dead / respawning: we keep waiting
 
     sitSaved = sitSaved or setmetatable({}, { __mode = "k" })
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.CanCollide then
+    for _, part in ipairs(U.CharParts(char)) do
+        if part.CanCollide then
             if sitSaved[part] == nil then sitSaved[part] = true end
             part.CanCollide = false
         end
