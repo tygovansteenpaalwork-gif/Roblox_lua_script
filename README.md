@@ -53,6 +53,12 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.6.3
+
+- **Configs laden altijd in dezelfde volgorde**: eerst sliders, dropdowns en kleuren, dan keybinds, en schakelaars als laatste. Een functie gaat dus pas aan als al zijn instellingen er staan. Eerder was de volgorde elke keer anders.
+- **Geen leeg menu meer bij een onbekende tab**: `SelectTab` met een naam die niet bestaat doet nu niets. Hij accepteert ook het tab-object zelf.
+- **Lange namen lopen niet meer onder de schakelaar door**: te lange teksten eindigen op "…", en drie te lange namen zijn korter gemaakt (*Health Bar Red When Low*, *Disable Animate (Stop All)*, *Whitelist Roblox Friends*). Je opgeslagen configs blijven gewoon werken.
+
 ## Nieuw in 2.6.2
 
 - **Custom Cursor kost geen FPS meer.** *Hide System Cursor* verbergt de muispijl nu met een doorzichtig plaatje in plaats van hem elk frame uit te zetten. Games zoals The Strongest Battlegrounds zetten de pijl elk frame weer aan, en dat gevecht kostte ongeveer 3 ms per frame. Nu is dat vrijwel 0.
@@ -240,7 +246,7 @@ Teleporteren en toekijken, een speler volgen (met een glijdende automatische afs
 
 **Animations:** *No Animations* stopt de animaties van je eigen karakter. Andere spelers zien dan ook geen animatie, omdat jouw client zijn animator zelf naar de server stuurt. Je kiest tussen *Stop All*, *Stop Attacks Only* (alleen move-animaties, lopen en idle blijven) en *Freeze Pose*. Tracks worden gestopt op het moment dat ze starten en nog meerdere keren per frame, zodat er niets doorheen glipt. Speelt de server een animatie zelf af, dan kan een client die niet tegenhouden.
 
-**Whitelist en blacklist:** kies spelers uit de server. Whitelist (vrienden) worden door aimbot, silent aim, triggerbot en rage overgeslagen. Blacklist (doelwitten) zijn eerst aan de beurt, en met *Only Target Blacklist* wordt alleen op hen gemikt. Een speler staat op maximaal één lijst. De lijsten werken op naam, blijven kloppen als iemand weggaat en terugkomt, en worden in je config opgeslagen. Met **Auto-Whitelist Roblox Friends** komen je Roblox-vrienden automatisch op de whitelist zodra ze de server binnenkomen.
+**Whitelist en blacklist:** kies spelers uit de server. Whitelist (vrienden) worden door aimbot, silent aim, triggerbot en rage overgeslagen. Blacklist (doelwitten) zijn eerst aan de beurt, en met *Only Target Blacklist* wordt alleen op hen gemikt. Een speler staat op maximaal één lijst. De lijsten werken op naam, blijven kloppen als iemand weggaat en terugkomt, en worden in je config opgeslagen. Met **Whitelist Roblox Friends** komen je Roblox-vrienden automatisch op de whitelist zodra ze de server binnenkomen.
 
 ### Fling
 <p align="center">

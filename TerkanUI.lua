@@ -185,6 +185,7 @@ local function text(parent, str, size, color, weight, align)
         TextColor3 = color or Theme.Text,
         TextXAlignment = align or Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Center,
+        TextTruncate = Enum.TextTruncate.AtEnd,   -- a label that is too long ends in "..." instead of running under the control
         Size = UDim2.new(1, 0, 1, 0),
     }, parent)
     applyFont(lbl, weight)
@@ -729,10 +730,21 @@ end
 --   registered: self.Flags, [flag] = { Kind = "toggle" | "slider" | "dropdown" | "color" | "keybind" | ..., ... }
 --   saved:      the flags in the config file, [flag] = raw value
 -- Returns a list of flag names (from `saved`) in the order they must be applied.
+-- Settings first, then keybinds, toggles last: a toggle's callback may start its feature right away, so everything
+-- that feature reads must already be loaded. Alphabetical within a group, so every load runs in the same order.
+local LOAD_RANK = { keybind = 1, toggle = 2 }   -- anything else (slider, dropdown, color, textbox, unknown) = 0
 local function loadOrder(registered, saved)
     local order = {}
     for flag in pairs(saved) do table.insert(order, flag) end
-    -- TODO: sort `order` so the result no longer depends on pairs()
+    local function rank(flag)
+        local entry = registered[flag]   -- nil for a flag from an older version that no longer exists
+        return entry and LOAD_RANK[entry.Kind] or 0
+    end
+    table.sort(order, function(a, b)
+        local ra, rb = rank(a), rank(b)
+        if ra ~= rb then return ra < rb end
+        return a < b
+    end)
     return order
 end
 
@@ -903,7 +915,15 @@ function Window:Tab(name)
     return tab
 end
 
+-- name: the tab's name, or the tab object itself. An unknown name changes nothing (it used to hide every page and
+-- leave an empty menu).
 function Window:SelectTab(name)
+    if type(name) == "table" then name = name.Name end
+    local found = false
+    for _, tab in ipairs(self.Tabs) do
+        if tab.Name == name then found = true break end
+    end
+    if not found then return false end
     self:CloseMenu()
     for _, tab in ipairs(self.Tabs) do
         local active = (tab.Name == name)

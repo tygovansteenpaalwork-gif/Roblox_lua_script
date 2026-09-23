@@ -95,7 +95,7 @@ local function whitelistFriends()
     end
     syncSelections()
 end
-toggle(listSec, "Auto-Whitelist Roblox Friends", "AutoWhiteFriends", false, function(v)
+toggle(listSec, "Whitelist Roblox Friends", "AutoWhiteFriends", false, function(v)
     if v then task.spawn(whitelistFriends) end
 end)
 connect(Players.PlayerAdded, function()

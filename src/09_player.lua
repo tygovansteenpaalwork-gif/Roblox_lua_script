@@ -203,7 +203,7 @@ toggle(animSec, "No Animations", "NoAnim", false, function(v)
     end
 end)
 dropdown(animSec, "Mode", "NoAnimMode", { "Stop All", "Stop Attacks Only", "Freeze Pose" }, "Stop All")
-toggle(animSec, "Disable Animate Script (Stop All)", "NoAnimScript", true)
+toggle(animSec, "Disable Animate (Stop All)", "NoAnimScript", true)
 onUnload(function() setAnimateScript(false) end)
 
 local function suppress(track)
@@ -400,7 +400,7 @@ local function whitelistFriends()
     end
     syncSelections()
 end
-toggle(listSec, "Auto-Whitelist Roblox Friends", "AutoWhiteFriends", false, function(v)
+toggle(listSec, "Whitelist Roblox Friends", "AutoWhiteFriends", false, function(v)
     if v then task.spawn(whitelistFriends) end
 end)
 connect(Players.PlayerAdded, function()

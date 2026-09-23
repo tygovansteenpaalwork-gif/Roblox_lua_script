@@ -49,7 +49,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.6.2"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.6.3"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -2208,7 +2208,7 @@ color(espCol, "Tracer", "ESPTracerColor", Color3.fromRGB(255, 60, 60))
 color(espCol, "Skeleton", "ESPSkelColor", Color3.fromRGB(255, 255, 255))
 slider(espCol, "Skeleton Width", "ESPSkelWidth", 1, 4, 1.5, { Decimals = 1, Suffix = " px" })
 color(espCol, "Health Bar", "ESPHealthColor", Color3.fromRGB(70, 220, 90))
-toggle(espCol, "Health Bar Shifts To Red When Low", "ESPHealthShift", false)
+toggle(espCol, "Health Bar Red When Low", "ESPHealthShift", false)
 color(espCol, "Whitelisted Player", "ListWhiteColor", Color3.fromRGB(80, 200, 255))
 color(espCol, "Blacklisted Player", "ListBlackColor", Color3.fromRGB(255, 200, 0))
 slider(espCol, "Chams Transparency", "ESPFillTrans", 0, 1, 0.55, { Decimals = 2 })
@@ -3857,7 +3857,7 @@ toggle(animSec, "No Animations", "NoAnim", false, function(v)
     end
 end)
 dropdown(animSec, "Mode", "NoAnimMode", { "Stop All", "Stop Attacks Only", "Freeze Pose" }, "Stop All")
-toggle(animSec, "Disable Animate Script (Stop All)", "NoAnimScript", true)
+toggle(animSec, "Disable Animate (Stop All)", "NoAnimScript", true)
 onUnload(function() setAnimateScript(false) end)
 
 local function suppress(track)
@@ -4054,7 +4054,7 @@ local function whitelistFriends()
     end
     syncSelections()
 end
-toggle(listSec, "Auto-Whitelist Roblox Friends", "AutoWhiteFriends", false, function(v)
+toggle(listSec, "Whitelist Roblox Friends", "AutoWhiteFriends", false, function(v)
     if v then task.spawn(whitelistFriends) end
 end)
 connect(Players.PlayerAdded, function()
