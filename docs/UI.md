@@ -43,7 +43,7 @@ Methodes op het venster:
 | Methode | Wat het doet |
 | --- | --- |
 | `win:Tab(naam)` | Maakt een tab. De eerste tab is meteen actief. |
-| `win:SelectTab(naam)` | Schakelt naar een tab (naam of het tab-object). Een onbekende naam doet niets en geeft `false`. |
+| `win:SelectTab(naam)` | Schakelt naar een tab (naam of het tab-object). Geeft `true`; een onbekende naam doet niets en geeft `false`. |
 | `win:SetVisible(true/false)`, `win:Toggle()` | Toont, verbergt of wisselt het menu. |
 | `win:SetToggleKey(toets)` | Verandert de openen/sluiten-toets. |
 | `win:SetTitle(tekst)`, `win:SetFooter(tekst)`, `win:SetScale(getal)` | Past het uiterlijk aan. |

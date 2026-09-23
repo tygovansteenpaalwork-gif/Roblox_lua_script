@@ -49,15 +49,18 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.6.3"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.6.4"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
-U.Seen = {}
+U.Seen, U.SeenCount = {}, 0
 function U.Report(err)
     local msg = tostring(err)
     if U.Seen[msg] then return end
+    -- an error whose text changes every time (a number, a name in it) would otherwise fill U.Seen forever
+    if U.SeenCount >= 200 then table.clear(U.Seen) U.SeenCount = 0 end
     U.Seen[msg] = true
+    U.SeenCount += 1
     warn("[Terkan] " .. msg)
     if U.Notify then U.Notify("Script error", msg:sub(1, 170), "error") end
 end
@@ -683,13 +686,23 @@ end
 -- True while the real cursor is on top of the menu. mouse1click() clicks wherever the
 -- cursor is, so an auto-clicking feature must never fire then: the click would land on
 -- the menu itself (switching the feature back off, or hitting Unload).
+-- Asked several times per frame (cursor, triggerbot, clicks) and ~30 us per call while the menu is open, so the answer
+-- is worked out once per frame. The top inset only changes when the screen does: looked up once a second.
 local function cursorOverMenu()
     if not win.Main.Visible then return false end
+    if U.overMenuFrame == U.Frame then return U.overMenuValue end
+    local now = os.clock()
+    if not U.insetAt or now - U.insetAt > 1 then
+        U.insetAt = now
+        U.insetTop = game:GetService("GuiService"):GetGuiInset().Y
+    end
     local m = UserInputService:GetMouseLocation()
     local p, s = win.Main.AbsolutePosition, win.Main.AbsoluteSize
     -- GetMouseLocation is in viewport space, AbsolutePosition in GUI space: they differ by the top inset
-    local top = game:GetService("GuiService"):GetGuiInset().Y
-    return m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y + top and m.Y <= p.Y + s.Y + top
+    local top = U.insetTop
+    local over = m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y + top and m.Y <= p.Y + s.Y + top
+    U.overMenuFrame, U.overMenuValue = U.Frame, over
+    return over
 end
 
 -- A click made INSIDE the game (VirtualInputManager) at the middle of the screen. Unlike
@@ -2007,10 +2020,11 @@ local function cursorTargetPlayer(pos)
     local ray = cam():ViewportPointToRay(pos.X, pos.Y)
     rayParams.FilterDescendantsInstances = { lp.Character }
     local res = workspace:Raycast(ray.Origin, ray.Direction * 1000, rayParams)
-    if not res then return end
+    if not res then return nil end
     local model = res.Instance:FindFirstAncestorOfClass("Model")
     local plr = model and Players:GetPlayerFromCharacter(model)
     if plr and plr ~= lp and charOf(plr) then return plr end
+    return nil
 end
 
 local curScale = 1            -- smoothed scale for the "on target" animations
@@ -3112,7 +3126,6 @@ local function myHumanoid()
     return meHum, meRoot, meChar
 end
 
-local orig = {}
 -- Speed and Jump do NOT touch WalkSpeed / JumpPower (those properties replicate, so a game can read the changed value):
 -- the extra speed is added by moving the character (see CFrame Speed further down), the jump by a velocity kick.
 toggle(move, "Speed", "SpeedEnabled", false)
@@ -3245,6 +3258,7 @@ local function stunFlag(char, hum)
     for _, n in ipairs(STUN_FLAGS) do
         if char:FindFirstChild(n) or char:GetAttribute(n) or hum:GetAttribute(n) then return n end
     end
+    return nil
 end
 
 renderLast(function()
@@ -4668,6 +4682,7 @@ local function safeClone(inst)
     local ok, c = pcall(function() return inst:Clone() end)
     inst.Archivable = was
     if ok and c then tidy(c) return c end
+    return nil
 end
 
 local DECOR = { Decal = true, Texture = true, SpecialMesh = true, SurfaceAppearance = true }
@@ -4801,7 +4816,7 @@ connect(lp.CharacterAdded, function(char)
         task.wait(2)                          -- let the game finish dressing the new character
         if lp.Character ~= char or not U.Running then return end
         mine = takeSnapshot(char)
-        applySnapshot(snap)
+        if applySnapshot(snap) and label then notify("Avatar", "Still a copy of " .. label, "success") end
     end)
 end)
 
@@ -6833,7 +6848,7 @@ local menuSec = settingsTab:Section("Menu", "right")
 local bindSec = settingsTab:Section("Binds", "right")
 
 -- configs
-local cfgName = cfgSec:TextBox({ Text = "Config Name", Placeholder = "my config", Flag = "_cfgName", NoSave = true,
+cfgSec:TextBox({ Text = "Config Name", Placeholder = "my config", Flag = "_cfgName", NoSave = true,
     Callback = function(v) C._cfgName = v end })
 local cfgList = cfgSec:Dropdown({ Text = "Config List", Options = win:ListConfigs(), Flag = "_cfgList", NoSave = true,
     Callback = function(v) C._cfgList = v end })
@@ -7009,7 +7024,7 @@ end
 task.defer(function()
     U.LoadingConfig = true
     local ok, res = win:LoadAutoload()
-    if ok then notify("Terkan", "Autoload config applied", "success")
+    if ok then notify("Terkan", ("Autoload config applied (%d settings)"):format(res), "success")
     else
         notify("Terkan", "Universal loaded - " .. tostring(win.ToggleKey.Name) .. " toggles the menu")
         -- no autoload config of your own: start with the settings that suit this game (a saved config always wins)

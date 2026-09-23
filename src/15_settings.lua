@@ -9,7 +9,7 @@ local menuSec = settingsTab:Section("Menu", "right")
 local bindSec = settingsTab:Section("Binds", "right")
 
 -- configs
-local cfgName = cfgSec:TextBox({ Text = "Config Name", Placeholder = "my config", Flag = "_cfgName", NoSave = true,
+cfgSec:TextBox({ Text = "Config Name", Placeholder = "my config", Flag = "_cfgName", NoSave = true,
     Callback = function(v) C._cfgName = v end })
 local cfgList = cfgSec:Dropdown({ Text = "Config List", Options = win:ListConfigs(), Flag = "_cfgList", NoSave = true,
     Callback = function(v) C._cfgList = v end })
@@ -185,7 +185,7 @@ end
 task.defer(function()
     U.LoadingConfig = true
     local ok, res = win:LoadAutoload()
-    if ok then notify("Terkan", "Autoload config applied", "success")
+    if ok then notify("Terkan", ("Autoload config applied (%d settings)"):format(res), "success")
     else
         notify("Terkan", "Universal loaded - " .. tostring(win.ToggleKey.Name) .. " toggles the menu")
         -- no autoload config of your own: start with the settings that suit this game (a saved config always wins)

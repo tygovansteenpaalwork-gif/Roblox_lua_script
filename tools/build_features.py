@@ -242,7 +242,7 @@ feature("noclip", "Noclip", "Walk through walls.",
         [("at:^-- noclip ---", "at:^-- anti stun \\+ anti ragdoll")],
         tab="Noclip", tabvar="moveTab", secs=[("fly", "Flight & Collision", None)])
 feature("speed_jump", "Speed & Jump", "Speed, jump power, infinite jump and anti stun. WalkSpeed / JumpPower are not touched: the CFrame mover does the work.",
-        [("at:^local orig = \\{\\}", "at:^-- fly ---"),
+        [("at:^-- Speed and Jump do NOT touch", "at:^-- fly ---"),
          ("at:^-- anti stun \\+ anti ragdoll", "before:Defense"),
          ("at:^local function keyDown", "at:^-- telekinesis ---")],
         tab="Speed & Jump", tabvar="moveTab",

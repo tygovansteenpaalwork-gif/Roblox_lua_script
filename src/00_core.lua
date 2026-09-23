@@ -49,15 +49,18 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.6.3"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.6.4"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
-U.Seen = {}
+U.Seen, U.SeenCount = {}, 0
 function U.Report(err)
     local msg = tostring(err)
     if U.Seen[msg] then return end
+    -- an error whose text changes every time (a number, a name in it) would otherwise fill U.Seen forever
+    if U.SeenCount >= 200 then table.clear(U.Seen) U.SeenCount = 0 end
     U.Seen[msg] = true
+    U.SeenCount += 1
     warn("[Terkan] " .. msg)
     if U.Notify then U.Notify("Script error", msg:sub(1, 170), "error") end
 end
@@ -683,13 +686,23 @@ end
 -- True while the real cursor is on top of the menu. mouse1click() clicks wherever the
 -- cursor is, so an auto-clicking feature must never fire then: the click would land on
 -- the menu itself (switching the feature back off, or hitting Unload).
+-- Asked several times per frame (cursor, triggerbot, clicks) and ~30 us per call while the menu is open, so the answer
+-- is worked out once per frame. The top inset only changes when the screen does: looked up once a second.
 local function cursorOverMenu()
     if not win.Main.Visible then return false end
+    if U.overMenuFrame == U.Frame then return U.overMenuValue end
+    local now = os.clock()
+    if not U.insetAt or now - U.insetAt > 1 then
+        U.insetAt = now
+        U.insetTop = game:GetService("GuiService"):GetGuiInset().Y
+    end
     local m = UserInputService:GetMouseLocation()
     local p, s = win.Main.AbsolutePosition, win.Main.AbsoluteSize
     -- GetMouseLocation is in viewport space, AbsolutePosition in GUI space: they differ by the top inset
-    local top = game:GetService("GuiService"):GetGuiInset().Y
-    return m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y + top and m.Y <= p.Y + s.Y + top
+    local top = U.insetTop
+    local over = m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y + top and m.Y <= p.Y + s.Y + top
+    U.overMenuFrame, U.overMenuValue = U.Frame, over
+    return over
 end
 
 -- A click made INSIDE the game (VirtualInputManager) at the middle of the screen. Unlike

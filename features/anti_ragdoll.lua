@@ -58,6 +58,7 @@ local function stunFlag(char, hum)
     for _, n in ipairs(STUN_FLAGS) do
         if char:FindFirstChild(n) or char:GetAttribute(n) or hum:GetAttribute(n) then return n end
     end
+    return nil
 end
 
 renderLast(function()

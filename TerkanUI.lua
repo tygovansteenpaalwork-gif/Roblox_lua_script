@@ -785,6 +785,7 @@ function Window:GetAutoload()
     local path = self.ConfigFolder .. "/autoload.txt"
     local ok, value = pcall(function() return isfile(path) and readfile(path) or nil end)
     if ok and value and value ~= "" then return cleanName(value) end
+    return nil
 end
 
 function Window:SetAutoload(name)
@@ -933,6 +934,7 @@ function Window:SelectTab(name)
         tween(tab.Label, { TextColor3 = active and Theme.Accent or Theme.TextDim }, 0.14)
         if active then self.ActiveTab = tab end
     end
+    return true
 end
 
 ----------------------------------------------------------------------

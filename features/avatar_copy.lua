@@ -51,6 +51,7 @@ local function safeClone(inst)
     local ok, c = pcall(function() return inst:Clone() end)
     inst.Archivable = was
     if ok and c then tidy(c) return c end
+    return nil
 end
 
 local DECOR = { Decal = true, Texture = true, SpecialMesh = true, SurfaceAppearance = true }
@@ -184,7 +185,7 @@ connect(lp.CharacterAdded, function(char)
         task.wait(2)                          -- let the game finish dressing the new character
         if lp.Character ~= char or not U.Running then return end
         mine = takeSnapshot(char)
-        applySnapshot(snap)
+        if applySnapshot(snap) and label then notify("Avatar", "Still a copy of " .. label, "success") end
     end)
 end)
 

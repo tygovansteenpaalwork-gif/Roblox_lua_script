@@ -21,7 +21,6 @@ local move = moveTab:Section("Speed & Jump")
 local cfSec = moveTab:Section("CFrame Speed")
 local cfFlySec = moveTab:Section("CFrame Fly & Dash", "right")
 
-local orig = {}
 -- Speed and Jump do NOT touch WalkSpeed / JumpPower (those properties replicate, so a game can read the changed value):
 -- the extra speed is added by moving the character (see CFrame Speed further down), the jump by a velocity kick.
 toggle(move, "Speed", "SpeedEnabled", false)
@@ -81,6 +80,7 @@ local function stunFlag(char, hum)
     for _, n in ipairs(STUN_FLAGS) do
         if char:FindFirstChild(n) or char:GetAttribute(n) or hum:GetAttribute(n) then return n end
     end
+    return nil
 end
 
 renderLast(function()

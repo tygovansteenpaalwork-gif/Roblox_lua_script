@@ -198,10 +198,11 @@ local function cursorTargetPlayer(pos)
     local ray = cam():ViewportPointToRay(pos.X, pos.Y)
     rayParams.FilterDescendantsInstances = { lp.Character }
     local res = workspace:Raycast(ray.Origin, ray.Direction * 1000, rayParams)
-    if not res then return end
+    if not res then return nil end
     local model = res.Instance:FindFirstAncestorOfClass("Model")
     local plr = model and Players:GetPlayerFromCharacter(model)
     if plr and plr ~= lp and charOf(plr) then return plr end
+    return nil
 end
 
 local curScale = 1            -- smoothed scale for the "on target" animations

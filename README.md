@@ -53,6 +53,14 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.6.4
+
+- **Minder werk met het menu open**: controleren of je muis boven het menu staat kost nu 0,6 in plaats van 31 microseconden, en gebeurt nog maar één keer per frame.
+- **Avatar Keep meldt zich na een respawn** met "Still a copy of ...", zodat je weet dat je kopie weer aangetrokken is.
+- **De autoload-melding** zegt hoeveel instellingen er geladen zijn.
+- Foutmeldingen die steeds een andere tekst hebben, vullen het geheugen niet meer onbeperkt.
+- Opgeruimd: ongebruikte variabelen weg, en `tools/check.py` vindt nu ook ongebruikte variabelen en functies zonder vaste `return` in de hub, TerkanUI en de loader.
+
 ## Nieuw in 2.6.3
 
 - **Configs laden altijd in dezelfde volgorde**: eerst sliders, dropdowns en kleuren, dan keybinds, en schakelaars als laatste. Een functie gaat dus pas aan als al zijn instellingen er staan. Eerder was de volgorde elke keer anders.

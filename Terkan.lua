@@ -67,6 +67,7 @@ function Terkan.info(name)
     for _, a in ipairs(m.aliases) do
         if a.name == name then return { name = a.name, about = a.about, file = "features/" .. a.target .. ".lua" } end
     end
+    return nil
 end
 
 -- the UI library on its own (also stored in TERKANUI, which the hub and the features look for)

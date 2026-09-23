@@ -55,6 +55,12 @@ def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
+# Lints that point at dead or half-finished code. Only checked in the hand-written files: the feature files are cut
+# out of the hub by build_features.py and carry shared locals (playerDD, aimTarget ...) that not every feature uses.
+LINTS = ("LocalUnused", "FunctionUnused", "ImplicitReturn")
+LINTED = {"TerkanUniversal.lua", "TerkanUI.lua", "Terkan.lua"}
+
+
 def check_file(compiler, analyzer, path):
     """returns a list of problems (empty = fine)"""
     p = run([compiler, "--binary", path])
@@ -62,8 +68,15 @@ def check_file(compiler, analyzer, path):
         first = (p.stderr or p.stdout).strip().splitlines()
         return ["COMPILE ERROR: " + (first[0] if first else "?")]
     a = run([analyzer, path])
-    unknown = sorted({m for m in re.findall(r"Unknown global '(\w+)'", a.stdout + a.stderr) if m not in KNOWN})
-    return ["unknown global: " + ", ".join(unknown)] if unknown else []
+    out = a.stdout + a.stderr
+    problems = []
+    unknown = sorted({m for m in re.findall(r"Unknown global '(\w+)'", out) if m not in KNOWN})
+    if unknown:
+        problems.append("unknown global: " + ", ".join(unknown))
+    if os.path.basename(path) in LINTED:
+        for line, kind, msg in re.findall(r"\((\d+),\d+\): (%s): ([^;\n]+)" % "|".join(LINTS), out):
+            problems.append("line %s %s: %s" % (line, kind, msg))
+    return problems
 
 
 def write_wrapper(out):
