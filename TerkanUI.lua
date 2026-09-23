@@ -1315,8 +1315,13 @@ function Section:Dropdown(a, ...)
         return single ~= nil and tostring(single) or "..."
     end
 
-    local menu, rebuild
+    local menu, menuList
     local api = {}
+    local ROW_H = 26
+
+    local function menuHeight()
+        return math.max(ROW_H * math.min(#options, 7) + 8, ROW_H + 8)
+    end
 
     local function fire()
         valueLabel.Text = displayText()
@@ -1336,62 +1341,22 @@ function Section:Dropdown(a, ...)
     local function closeMenu()
         if menu then
             menu:Destroy()
-            menu = nil
+            menu, menuList = nil, nil
         end
         tween(chevron, { Rotation = 0 }, 0.12)
     end
 
-    local function openMenu()
-        win:CloseMenu()
-
-        local absPos  = box.AbsolutePosition
-        local absSize = box.AbsoluteSize
-        local rootPos = win.Main.AbsolutePosition
-        local scale   = win.Scale.Scale
-
-        local x = (absPos.X - rootPos.X) / scale
-        local y = (absPos.Y - rootPos.Y + absSize.Y + 4) / scale
-        local width = absSize.X / scale
-
-        local rowH = 26
-        local maxShown = math.min(#options, 7)
-        local height = math.max(rowH * maxShown + 8, rowH + 8)
-
-        -- flip upwards if it would leave the window
-        local winH = win.Main.AbsoluteSize.Y / scale
-        if y + height > winH - 6 then
-            y = (absPos.Y - rootPos.Y) / scale - height - 4
+    -- (re)fills the open menu; used on open and by SetOptions so a list that
+    -- refreshes (player joined/left) stays open at the same scroll spot
+    local function buildItems()
+        for _, child in ipairs(menuList:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
         end
-
-        menu = new("Frame", {
-            Name = "DropdownMenu",
-            Position = UDim2.fromOffset(math.floor(x), math.floor(y)),
-            Size = UDim2.fromOffset(math.floor(width), 0),
-            BackgroundColor3 = Theme.BgTop,
-            BorderSizePixel = 0,
-            ZIndex = 60,
-        }, win.Overlay)
-        corner(menu, 4)
-        stroke(menu, Theme.Accent, 1, 0.25)
-
-        local list = new("ScrollingFrame", {
-            Size = UDim2.fromScale(1, 1),
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-            CanvasSize = UDim2.new(),
-            AutomaticCanvasSize = Enum.AutomaticSize.Y,
-            ScrollBarThickness = 2,
-            ScrollBarImageColor3 = Theme.Accent,
-            ZIndex = 61,
-        }, menu)
-        padding(list, 4, 4, 4, 4)
-        vlist(list, 2)
-
         for index, opt in ipairs(options) do
             local isOn = multi and selected[opt] or (not multi and single == opt)
 
             local item = new("TextButton", {
-                Size = UDim2.new(1, 0, 0, rowH - 2),
+                Size = UDim2.new(1, 0, 0, ROW_H - 2),
                 BackgroundColor3 = Theme.AccentDeep,
                 BackgroundTransparency = isOn and 0.1 or 1,
                 BorderSizePixel = 0,
@@ -1399,7 +1364,7 @@ function Section:Dropdown(a, ...)
                 AutoButtonColor = false,
                 LayoutOrder = index,
                 ZIndex = 62,
-            }, list)
+            }, menuList)
             corner(item, 3)
 
             local itemLabel = text(item, tostring(opt), 13,
@@ -1433,6 +1398,58 @@ function Section:Dropdown(a, ...)
                 end
             end)
         end
+
+    end
+
+    local function openMenu()
+        win:CloseMenu()
+
+        local absPos  = box.AbsolutePosition
+        local absSize = box.AbsoluteSize
+        local rootPos = win.Main.AbsolutePosition
+        local scale   = win.Scale.Scale
+
+        local x = (absPos.X - rootPos.X) / scale
+        local y = (absPos.Y - rootPos.Y + absSize.Y + 4) / scale
+        local width = absSize.X / scale
+
+        local height = menuHeight()
+
+        -- flip upwards if it would leave the window (anchored at the bottom,
+        -- so a later height change grows away from the box, not over it)
+        local anchor = Vector2.new(0, 0)
+        local winH = win.Main.AbsoluteSize.Y / scale
+        if y + height > winH - 6 then
+            y = (absPos.Y - rootPos.Y) / scale - 4
+            anchor = Vector2.new(0, 1)
+        end
+
+        menu = new("Frame", {
+            Name = "DropdownMenu",
+            AnchorPoint = anchor,
+            Position = UDim2.fromOffset(math.floor(x), math.floor(y)),
+            Size = UDim2.fromOffset(math.floor(width), 0),
+            BackgroundColor3 = Theme.BgTop,
+            BorderSizePixel = 0,
+            ZIndex = 60,
+        }, win.Overlay)
+        corner(menu, 4)
+        stroke(menu, Theme.Accent, 1, 0.25)
+
+        menuList = new("ScrollingFrame", {
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            CanvasSize = UDim2.new(),
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = 2,
+            ScrollBarImageColor3 = Theme.Accent,
+            ZIndex = 61,
+        }, menu)
+        padding(menuList, 4, 4, 4, 4)
+        vlist(menuList, 2)
+
+        buildItems()
 
         win.Overlay.Visible = true
         win.OpenMenu = closeMenu
@@ -1494,8 +1511,22 @@ function Section:Dropdown(a, ...)
     end
 
     function api:SetOptions(newOptions)
-        options = newOptions or {}
-        if menu then win:CloseMenu() end
+        newOptions = newOptions or {}
+        local same = #newOptions == #options
+        if same then
+            for i, opt in ipairs(newOptions) do
+                if options[i] ~= opt then same = false break end
+            end
+        end
+        options = newOptions
+        if menu and not same then
+            local scroll = menuList.CanvasPosition
+            buildItems()
+            tween(menu, { Size = UDim2.fromOffset(menu.Size.X.Offset, menuHeight()) }, 0.1)
+            task.defer(function()   -- canvas size updates after layout
+                if menuList then menuList.CanvasPosition = scroll end
+            end)
+        end
         if not multi and single ~= nil then
             local found = false
             for _, opt in ipairs(options) do
