@@ -49,7 +49,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.5.2"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.6.0"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -155,7 +155,7 @@ local FEATURE_TOGGLES = {
     FovEnabled = true, FpsBoost = true, AntiAfk = true, VoidSpam = true, AntiRagdoll = true, FlingLoop = true, NoAnim = true, Freecam = true,
     CleanEffects = true, CleanFog = true, CleanParticles = true, ZoomUnlock = true, StatsHud = true,
     CfSpeed = true, CfFly = true, TkEnabled = true, ChatSpy = true, ShOn = true, ShFuture = true,
-    SpinOn = true, HeadSit = true, SitOn = true, LayDown = true, SkyOn = true, SuperFly = true, PunchOn = true, SkinOn = true,
+    SpinOn = true, HeadSit = true, SitOn = true, LayDown = true, SkyOn = true, SuperFly = true, PunchOn = true, SkinOn = true, Potato = true,
 }
 
 local function toggle(sec, text, key, default, onChange)
@@ -5512,23 +5512,137 @@ local miscTab = win:Tab("Misc")
 local perf = miscTab:Section("Performance")
 local tools = miscTab:Section("Tools", "right")
 
-local savedQuality, savedShadows
+local savedShadows
+-- The graphics quality level is left alone on purpose: lowering it also shortens how far you can see.
 toggle(perf, "FPS Boost", "FpsBoost", false, function(v)
     if v then
         savedShadows = Lighting.GlobalShadows
-        pcall(function() savedQuality = settings().Rendering.QualityLevel end)
         Lighting.GlobalShadows = false
-        pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
         pcall(function() workspace.Terrain.Decoration = false end)
     else
         if savedShadows ~= nil then Lighting.GlobalShadows = savedShadows end
-        if savedQuality then pcall(function() settings().Rendering.QualityLevel = savedQuality end) end
         pcall(function() workspace.Terrain.Decoration = true end)
     end
 end)
 if hasFn("setfpscap") then
     slider(perf, "FPS Cap (0 = off)", "FpsCap", 0, 360, 0, { OnChange = function(v) pcall(setfpscap, v) end })
 end
+
+-- potato mode ------------------------------------------------------------------------------------------------
+-- Much further than FPS Boost: every part to SmoothPlastic without its own shadow, textures / decals / PBR skins
+-- (SurfaceAppearance) away, particles and post effects off, the cheapest lighting and plain terrain. The graphics
+-- quality level is NOT lowered: that also shortens how far you can see. Players are left
+-- alone (you must still see who is who), and so is the viewmodel under the camera (the Weapon Skin works there).
+-- Every original is remembered and put back when it is switched off. Big maps are done in slices, so switching it on
+-- does not freeze a frame; things that appear later are done as they come.
+;(function()
+local potato = {
+    mat = setmetatable({}, { __mode = "k" }),      -- [part] = original Material
+    shadow = setmetatable({}, { __mode = "k" }),   -- [part] = true: CastShadow was on
+    tex = setmetatable({}, { __mode = "k" }),      -- [decal / texture] = original Transparency
+    surf = setmetatable({}, { __mode = "k" }),     -- [SurfaceAppearance] = original parent
+    fx = setmetatable({}, { __mode = "k" }),       -- [emitter / post effect] = true: was enabled
+    gen = 0,                                       -- bumped on off: a running slice stops
+}
+local FX_CLASSES = { "ParticleEmitter", "Trail", "Beam", "Smoke", "Fire", "Sparkles",
+    "BloomEffect", "BlurEffect", "SunRaysEffect", "ColorCorrectionEffect", "DepthOfFieldEffect" }
+
+-- characters and the viewmodel stay as they are
+local function leaveAlone(inst)
+    local c = workspace.CurrentCamera
+    if c and inst:IsDescendantOf(c) then return true end
+    local model = inst:FindFirstAncestorOfClass("Model")
+    while model do
+        if model:FindFirstChildOfClass("Humanoid") then return true end
+        model = model:FindFirstAncestorOfClass("Model")
+    end
+    return false
+end
+
+local function isFx(d)
+    for _, cls in ipairs(FX_CLASSES) do
+        if d:IsA(cls) then return true end
+    end
+    return false
+end
+
+local function potatoOne(d)
+    if not (C.Potato and U.Running and d.Parent) then return end
+    if d:IsA("BasePart") then
+        if leaveAlone(d) then return end
+        if d.Material ~= Enum.Material.SmoothPlastic and potato.mat[d] == nil then
+            potato.mat[d] = d.Material
+            d.Material = Enum.Material.SmoothPlastic
+        end
+        if d.CastShadow then potato.shadow[d] = true d.CastShadow = false end
+    elseif d:IsA("Decal") or d:IsA("Texture") then
+        if leaveAlone(d) then return end
+        if potato.tex[d] == nil then potato.tex[d] = d.Transparency end
+        d.Transparency = 1
+    elseif d:IsA("SurfaceAppearance") then
+        if leaveAlone(d) then return end
+        potato.surf[d] = d.Parent
+        d.Parent = nil
+    elseif isFx(d) then
+        if d.Enabled then potato.fx[d] = true d.Enabled = false end
+    end
+end
+
+local lightOrig
+local function potatoLighting(on)
+    local t = workspace.Terrain
+    if on then
+        if not lightOrig then
+            -- (Terrain.Decoration does not exist in every client: reading it may throw)
+            lightOrig = { shadows = Lighting.GlobalShadows, waves = t.WaterWaveSize, refl = t.WaterReflectance }
+            pcall(function() lightOrig.deco = t.Decoration end)
+            pcall(function() lightOrig.tech = gethiddenproperty(Lighting, "Technology") end)
+        end
+        Lighting.GlobalShadows = false
+        pcall(function() sethiddenproperty(Lighting, "Technology", Enum.Technology.Compatibility) end)
+        pcall(function() t.Decoration = false end)
+        t.WaterWaveSize, t.WaterReflectance = 0, 0
+    elseif lightOrig then
+        Lighting.GlobalShadows = lightOrig.shadows
+        if lightOrig.deco ~= nil then pcall(function() t.Decoration = lightOrig.deco end) end
+        t.WaterWaveSize, t.WaterReflectance = lightOrig.waves, lightOrig.refl
+        if lightOrig.tech then pcall(function() sethiddenproperty(Lighting, "Technology", lightOrig.tech) end) end
+        lightOrig = nil
+    end
+end
+
+local function potatoOn()
+    potato.gen += 1
+    local gen = potato.gen
+    potatoLighting(true)
+    task.spawn(function()
+        for _, root in ipairs({ Lighting, workspace }) do
+            for i, d in ipairs(root:GetDescendants()) do
+                if potato.gen ~= gen or not C.Potato then return end
+                pcall(potatoOne, d)
+                if i % 1500 == 0 then task.wait() end   -- big maps: a slice per frame
+            end
+        end
+    end)
+end
+
+local function potatoOff()
+    potato.gen += 1
+    potatoLighting(false)
+    for p, m in pairs(potato.mat) do pcall(function() p.Material = m end) end
+    for p in pairs(potato.shadow) do pcall(function() p.CastShadow = true end) end
+    for d, tr in pairs(potato.tex) do pcall(function() d.Transparency = tr end) end
+    for s, parent in pairs(potato.surf) do pcall(function() s.Parent = parent end) end
+    for f in pairs(potato.fx) do pcall(function() f.Enabled = true end) end
+    for _, t in pairs(potato) do if type(t) == "table" then table.clear(t) end end
+end
+
+toggle(perf, "Potato Mode", "Potato", false, function(v) if v then potatoOn() else potatoOff() end end)
+-- new things: a moment later, so a character is complete (with its Humanoid) before it is looked at
+connect(workspace.DescendantAdded, function(d) if C.Potato then task.defer(pcall, potatoOne, d) end end)
+connect(Lighting.DescendantAdded, function(d) if C.Potato then task.defer(pcall, potatoOne, d) end end)
+onUnload(potatoOff)
+end)()
 
 tools:Button({ Text = "Load Infinite Yield", Callback = function()
     notify("Infinite Yield", "Loading...")
@@ -6834,6 +6948,7 @@ keybind(bindSec, "Desync", "BindDesync", nil, flip("Desync"))
 keybind(bindSec, "Noclip", "BindNoclip", nil, flip("Noclip"))
 keybind(bindSec, "Speed", "BindSpeed", nil, flip("SpeedEnabled"))
 keybind(bindSec, "Weapon Skin", "BindSkin", nil, flip("SkinOn"))
+keybind(bindSec, "Potato Mode", "BindPotato", nil, flip("Potato"))
 
 ----------------------------------------------------------------------
 -- startup / unload

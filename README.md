@@ -53,6 +53,11 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.6.0
+
+- **Potato Mode** (*Misc → Performance*): alles voor FPS zonder dat je minder ver ziet. Onderdelen worden glad plastic zonder eigen schaduw, textures en PBR-skins verdwijnen, particles en post-effecten gaan uit, de eenvoudigste lichtmotor en rustig water. Spelers en je viewmodel blijven zoals ze zijn (Weapon Skin blijft werken). Grote maps worden in stukjes verwerkt, uitzetten zet alles terug. In The Strongest Battlegrounds gemeten: 87 naar 103 FPS.
+- **FPS Boost verlaagt de grafische kwaliteit niet meer**: dat maakte ook je kijkafstand korter.
+
 ## Nieuw in 2.5.2
 
 - **Rage pakt je gekozen wapen.** Na een respawn kon een geweer heel even zonder onderdelen bestaan; Rage zag het dan aan voor een ability en wisselde er later naartoe. Een lege tool telt nu pas als ability als hij 2 seconden leeg blijft, en vlak voor gebruik wordt de echte tool nog eens gecontroleerd.

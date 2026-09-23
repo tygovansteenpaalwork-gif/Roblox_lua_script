@@ -166,6 +166,7 @@ keybind(bindSec, "Desync", "BindDesync", nil, flip("Desync"))
 keybind(bindSec, "Noclip", "BindNoclip", nil, flip("Noclip"))
 keybind(bindSec, "Speed", "BindSpeed", nil, flip("SpeedEnabled"))
 keybind(bindSec, "Weapon Skin", "BindSkin", nil, flip("SkinOn"))
+keybind(bindSec, "Potato Mode", "BindPotato", nil, flip("Potato"))
 
 ----------------------------------------------------------------------
 -- startup / unload

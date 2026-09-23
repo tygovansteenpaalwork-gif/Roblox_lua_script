@@ -61,7 +61,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.5.2"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.6.0"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -167,7 +167,7 @@ local FEATURE_TOGGLES = {
     FovEnabled = true, FpsBoost = true, AntiAfk = true, VoidSpam = true, AntiRagdoll = true, FlingLoop = true, NoAnim = true, Freecam = true,
     CleanEffects = true, CleanFog = true, CleanParticles = true, ZoomUnlock = true, StatsHud = true,
     CfSpeed = true, CfFly = true, TkEnabled = true, ChatSpy = true, ShOn = true, ShFuture = true,
-    SpinOn = true, HeadSit = true, SitOn = true, LayDown = true, SkyOn = true, SuperFly = true, PunchOn = true, SkinOn = true,
+    SpinOn = true, HeadSit = true, SitOn = true, LayDown = true, SkyOn = true, SuperFly = true, PunchOn = true, SkinOn = true, Potato = true,
 }
 
 local function toggle(sec, text, key, default, onChange)
