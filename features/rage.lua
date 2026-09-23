@@ -83,6 +83,8 @@ slider(rageFire, "Burst Gap", "RageBurstGap", 10, 300, 40, { Suffix = " ms" })
 slider(rageFire, "Only Fire Within", "RageAngle", 1, 180, 180, { Suffix = "°" })
 dropdown(rageFire, "Fire Method", "RageMethod", FIRE_METHODS, "Auto")
 toggle(rageFire, "Auto Equip Tool", "RageEquip", true)
+-- an empty gun (its "Ammo" value at 0) is reloaded with R
+toggle(rageFire, "Auto Reload", "RageReload", true)
 -- what Rage holds while shooting: Auto = the first tool that is not an ability, No Tool = empty hands
 -- (punch / M1 games), or one tool from your inventory. The list fills itself with your tools.
 C.RageWeapon = R.AUTO
@@ -98,6 +100,8 @@ toggle(rageFilt, "Dead Check", "RageDead", true)
 toggle(rageFilt, "Ignore Walls", "RageIgnoreWalls", false)
 toggle(rageFilt, "Skip ForceField", "RageNoFF", true)
 toggle(rageFilt, "Skip Invisible Rigs", "RageNoInvis", true)
+-- a gun with a "Range" value (Da Hood style: shotguns 70 studs) only picks targets it can reach
+toggle(rageFilt, "Respect Weapon Range", "RageRange", true)
 
 local RAGE_POSITIONS = { "Off", "Behind Target", "Above Target", "Below Target", "Orbit Target", "Strafe Target" }
 dropdown(rageMove, "Position", "RagePosition", RAGE_POSITIONS, "Off")
@@ -130,14 +134,32 @@ local abilityDD, abilityLast = nil, ""
 
 local function currentToolNames()
     local list = {}
+    R.toolOf = {}
     for _, holder in ipairs({ lp.Backpack, lp.Character }) do
         if holder then
             for _, x in ipairs(holder:GetChildren()) do
-                if x:IsA("Tool") and not table.find(list, x.Name) then table.insert(list, x.Name) end
+                if x:IsA("Tool") and not table.find(list, x.Name) then
+                    table.insert(list, x.Name)
+                    R.toolOf[x.Name] = x
+                end
             end
         end
     end
     return list
+end
+
+-- An ability is a tool WITHOUT a model: The Strongest Battlegrounds' moves are empty tools. A tool with parts is a
+-- weapon or an item (guns, knives, a wallet ...): pressing its hotbar key would just swap what you hold.
+function R.isAbilityTool(name)
+    local t = R.toolOf and R.toolOf[name]
+    return t ~= nil and t:FindFirstChildWhichIsA("BasePart", true) == nil
+end
+
+-- a gun: a tool with an "Ammo" value (Da Hood style); returns the ammo left
+function R.ammoOf(tool)
+    local a = tool and tool:FindFirstChild("Ammo")
+    if a and a:IsA("ValueBase") then return tonumber(a.Value) end
+    return nil
 end
 
 local function refreshAbilities()
@@ -155,9 +177,12 @@ local function refreshAbilities()
         if not slotOf[n] then slotOf[n], nextSlot = nextSlot, nextSlot + 1 end
         if not R.seen[n] then R.seen[n], chosenTools[n] = true, true end   -- a new tool starts ticked
     end
-    -- the weapon is never also used as an ability
-    local i = table.find(names, C.RageWeapon)
-    if i then table.remove(names, i) end
+    -- only model-less tools are abilities, and the weapon is never one
+    local abil = {}
+    for _, n in ipairs(names) do
+        if n ~= C.RageWeapon and R.isAbilityTool(n) then table.insert(abil, n) end
+    end
+    names = abil
     abilityNames = names
     abilityDD:SetOptions(names)
     local picked = {}
@@ -269,19 +294,46 @@ function R.equipWeapon(now)
     if not hum then return end
     local held = char:FindFirstChildOfClass("Tool")
     local w = C.RageWeapon
-    local function isAbility(name) return C.RageAbilitiesOn and chosenTools[name] and name ~= w end
+    -- (only model-less tools count: an old config may still have guns ticked as abilities)
+    local function isAbility(name) return C.RageAbilitiesOn and chosenTools[name] and name ~= w and R.isAbilityTool(name) end
     if w == R.NONE then
         if held then hum:UnequipTools() end
     elseif w == R.AUTO then
-        if held and not isAbility(held.Name) then return end
+        -- a gun first (one with ammo left if possible); in games without guns the first tool that is no ability;
+        -- only abilities in the inventory: fight with empty hands
+        local guns, other = {}, nil
         for _, x in ipairs(lp.Backpack:GetChildren()) do
-            if x:IsA("Tool") and not isAbility(x.Name) then hum:EquipTool(x) return end
+            if x:IsA("Tool") and not isAbility(x.Name) then
+                if R.ammoOf(x) then table.insert(guns, x) elseif not other then other = x end
+            end
         end
-        if held then hum:UnequipTools() end   -- only abilities in the inventory: fight with empty hands
+        if held and not isAbility(held.Name) then
+            if R.ammoOf(held) or #guns == 0 then return end   -- a gun (reloaded when empty), or no guns here at all
+        end
+        local pick
+        for _, g in ipairs(guns) do
+            if (R.ammoOf(g) or 0) > 0 then pick = g break end
+        end
+        pick = pick or guns[1] or other
+        if pick then hum:EquipTool(pick) elseif held then hum:UnequipTools() end
     elseif not (held and held.Name == w) then
         local x = lp.Backpack:FindFirstChild(w)
         if x and x:IsA("Tool") then hum:EquipTool(x) end
     end
+end
+
+-- empty gun in hand: press R (once a second at most, not while the game already reloads, never while typing)
+function R.autoReload(now)
+    if not C.RageReload or now < (R.reloadAt or 0) then return end
+    local char = lp.Character
+    local ammo = R.ammoOf(char and char:FindFirstChildOfClass("Tool"))
+    if not ammo or ammo > 0 then return end
+    local be = char:FindFirstChild("BodyEffects")
+    local busy = be and be:FindFirstChild("Reload")
+    if busy and busy:IsA("ValueBase") and busy.Value == true then return end
+    if UserInputService:GetFocusedTextBox() or R.menuKey(Enum.KeyCode.R) then return end
+    R.reloadAt = now + 1
+    pressKey(Enum.KeyCode.R)
 end
 
 -- a spot Rage may put the character on: a real number, and not in (or under) the void
@@ -317,6 +369,7 @@ function R.noTargetWhy()
             elseif R.skip[plr] then r = "gave up, no damage"
             elseif not (char and hum and root) then r = "no character"
             elseif C.RageDead and hum.Health <= 0 then r = "dead"
+            elseif C.RageDead and U.isDowned(char) then r = "knocked out"
             elseif C.RageTeam and sameTeam(plr) then r = "teammate"
             elseif C.RageNoFF and char:FindFirstChildOfClass("ForceField") then r = "forcefield"
             elseif C.RageNoInvis and U.isInvisible(char) then r = "invisible"
@@ -401,9 +454,20 @@ renderLast(function(dt)
     for plr, untilT in pairs(R.skip) do
         if untilT <= now then R.skip[plr] = nil end
     end
+    R.autoReload(now)
+    -- a gun with a Range value only picks targets it can reach (distances are measured from the camera). Not while
+    -- Position is on: then Rage moves you next to the target anyway.
+    local maxDist = C.RageDist
+    if C.RageRange and C.RagePosition == "Off" then
+        local tool = char:FindFirstChildOfClass("Tool")
+        local range = tool and tool:FindFirstChild("Range")
+        if range and range:IsA("ValueBase") and tonumber(range.Value) then
+            maxDist = math.min(maxDist, range.Value + (cam().CFrame.Position - root.Position).Magnitude)
+        end
+    end
     local t = selectTarget({
         Only = C.RageWho ~= RAGE_AUTO and C.RageWho or nil, Skip = R.skip,
-        FOV = C.RageFov > 0 and C.RageFov or nil, MaxDist = C.RageDist, MinDist = C.RageMinDist,
+        FOV = C.RageFov > 0 and C.RageFov or nil, MaxDist = maxDist, MinDist = C.RageMinDist,
         Team = C.RageTeam, NoFF = C.RageNoFF, NoInvis = C.RageNoInvis, Wall = not C.RageIgnoreWalls, AllowDead = not C.RageDead,
         Part = C.RagePart, Priority = C.RagePriority, Origin = cursorOrCenter(false),
         Sticky = keep and prev.plr or nil,

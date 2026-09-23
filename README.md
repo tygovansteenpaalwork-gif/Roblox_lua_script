@@ -53,6 +53,11 @@ Configs worden opgeslagen in `Terkan/configs/*.json` in de workspace-map.
 
 ---
 
+## Nieuw in 2.5.1
+
+- **Rage in Da Hood-achtige games.** Alleen tools zonder model (zoals de moves in The Strongest Battlegrounds) tellen als ability, dus Rage wisselt niet meer tussen je geweren, mes en wallet. *Weapon: Auto* kiest een geweer met kogels. Nieuw: **Auto Reload** (leeg geweer, dan drukt Rage op R) en **Respect Weapon Range** (een shotgun kiest alleen targets binnen zijn bereik).
+- **Knocked-out spelers worden overgeslagen** door Rage, Aimbot en Silent Aim (Da Hood `K.O` / `Dead`, of een KO-attribute).
+
 ## Nieuw in 2.5.0
 
 - **Weapon Skin** (*Visuals*): geef je wapen een ander uiterlijk, alleen op je eigen scherm. Kies een materiaal (Neon, Glass, ForceField, Smooth, Chrome), een kleur (vaste kleur of Rainbow), doorzichtigheid en een outline in dezelfde kleur. Werkt voor het viewmodel voor de camera (zoals in Arsenal) en voor een Tool in je hand; armen kleuren alleen mee met *Include Arms*. Uitzetten zet alles terug. Sneltoets onder *Settings → Binds*.

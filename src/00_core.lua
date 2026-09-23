@@ -49,7 +49,7 @@ function U.rname()
     return table.concat(out)
 end
 U.FreecamAction = U.rname()
-U.Version = "2.5.0"   -- also in version.txt on GitHub: the menu compares the two at startup
+U.Version = "2.5.1"   -- also in version.txt on GitHub: the menu compares the two at startup
 
 -- Errors inside a feature are shown once as a notification (and in the console) instead of silently killing that feature.
 -- Every connection, render step and menu callback goes through U.Guard.
@@ -593,6 +593,26 @@ function U.isInvisible(char)
     return v
 end
 
+-- Knocked out but not dead: Da Hood style games keep the health up and flag it in BodyEffects ("K.O" / "Dead"),
+-- other games use an attribute. Such a player cannot be hurt, so the dead check skips them too. Kept 0.2 s per character.
+U.downCache = setmetatable({}, { __mode = "k" })
+function U.isDowned(char)
+    local now = os.clock()
+    local hit = U.downCache[char]
+    if hit and now - hit.at < 0.2 then return hit.v end
+    local v = false
+    local be = char:FindFirstChild("BodyEffects")
+    if be then
+        local ko, dead = be:FindFirstChild("K.O"), be:FindFirstChild("Dead")
+        v = (ko ~= nil and ko:IsA("ValueBase") and ko.Value == true) or (dead ~= nil and dead:IsA("ValueBase") and dead.Value == true)
+    end
+    if not v then
+        v = char:GetAttribute("KO") == true or char:GetAttribute("Knocked") == true or char:GetAttribute("Downed") == true
+    end
+    U.downCache[char] = { at = now, v = v }
+    return v
+end
+
 -- o: Only (player name: consider nobody else), Skip (set of players to pass over), Origin, FOV (px, nil = no limit), MaxDist, MinDist, Team, NoFF (skip ForceField), NoInvis (skip invisible rigs), Wall, Part, Priority, Sticky (plr)
 local function selectTarget(o)
     local c = cam()
@@ -609,7 +629,7 @@ local function selectTarget(o)
             -- same test as charOf(plr, o.AllowDead), on the shared per-frame snapshot
             local char, hum, root = e.char, e.hum, e.root
             if not (hum and root)
-                or (not o.AllowDead and (hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead)) then
+                or (not o.AllowDead and (hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead or U.isDowned(e.char))) then
                 char = nil
             end
             if char and not (o.Team and sameTeam(plr)) and not (o.NoFF and char:FindFirstChildOfClass("ForceField"))
